@@ -150,6 +150,7 @@ internal sealed class MarkdownBuilder
     // Link tracking.
     private Uri? _linkUri;
     private int _linkInlineStart;
+    private int _customLinkDepth;
 
     // Image tracking.
     private bool _insideImage;
@@ -739,6 +740,12 @@ internal sealed class MarkdownBuilder
                 _isStrikethrough = true;
                 break;
             case MarkdownSpanType.A:
+                if (_options.LinkBuilder is not null)
+                {
+                    // Image alt text and nested autolinks belong to the outer label.
+                    if (_insideImage) break;
+                    if (++_customLinkDepth > 1) break;
+                }
                 if (detail is MarkdownSpanADetail a && a.Href.Text is not null)
                 {
                     Uri.TryCreate(a.Href.Text, UriKind.RelativeOrAbsolute, out var uri);
@@ -776,6 +783,11 @@ internal sealed class MarkdownBuilder
                 _isStrikethrough = false;
                 break;
             case MarkdownSpanType.A:
+                if (_options.LinkBuilder is not null)
+                {
+                    if (_insideImage) break;
+                    if (--_customLinkDepth > 0) break;
+                }
                 LeaveLink();
                 break;
             case MarkdownSpanType.Img:

@@ -74,6 +74,10 @@ public record MarkdownOptions
     /// Override link rendering. (displayInlines, navigateUri) → element.
     /// Apps that want to require a confirmation UX or unfurl/origin-preview
     /// for cross-site hyperlinks should provide this. TASK-048.
+    /// The label is one selectable RichTextBlock element preserving inline
+    /// formatting and images, or an empty array for an empty label. The returned
+    /// non-null element is embedded inline as custom UI, with its own selection
+    /// boundary. With no override, links remain native text hyperlinks.
     /// </summary>
     public Func<Element[], Uri, Element>? LinkBuilder { get; init; }
     /// <summary>
@@ -802,6 +806,18 @@ internal sealed class MarkdownBuilder
             return;
         }
 
+        if (_options.LinkBuilder is { } buildLink)
+        {
+            var labelInlines = _inlines.GetRange(_linkInlineStart, _inlines.Count - _linkInlineStart).ToArray();
+            Element[] label = labelInlines.Length == 0 ? [] : [MakeRichText(labelInlines)];
+            var element = buildLink(label, _linkUri)
+                ?? throw new InvalidOperationException("MarkdownOptions.LinkBuilder must return a non-null Element.");
+            _inlines.RemoveRange(_linkInlineStart, _inlines.Count - _linkInlineStart);
+            _inlines.Add(new RichTextInlineUIContainer { Child = element });
+            _linkUri = null;
+            return;
+        }
+
         // Flatten all inlines accumulated since the link opened into plain text.
         var sb = new StringBuilder();
         for (int i = _linkInlineStart; i < _inlines.Count; i++)
@@ -833,8 +849,9 @@ internal sealed class MarkdownBuilder
             else
                 img = Image(_imageSrc.ToString());
 
-            // Images are block-level — add to parent frame.
-            if (_blockStack.Count > 0)
+            if (_linkUri is not null && _options.LinkBuilder is not null)
+                _inlines.Add(new RichTextInlineUIContainer { Child = img });
+            else if (_blockStack.Count > 0)
                 _blockStack.Peek().Children.Add(img);
         }
         _imageSrc = null;

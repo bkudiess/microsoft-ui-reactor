@@ -283,6 +283,18 @@ hyperlinks, code spans become monospace `TextBlock`. No WebView, no HTML
 round-trip — the output composes with every other modifier on this page
 (`.Padding`, `.Width`, `.TextWrapping`).
 
+`MarkdownOptions.LinkBuilder` overrides rendering for links whose absolute URI
+passes the Markdown URI policy (`http`, `https`, or `mailto`). It receives the
+validated URI and a label array containing one selectable `RichTextBlock`
+with the label's formatting and images preserved (an empty array for an empty
+label). Return a non-null `Element` for a confirmation action, preview, or
+other custom link UI; exceptions propagate and a null result is an error.
+The returned element is embedded through `InlineUIContainer`, retaining its
+own styling, lifecycle, and accessibility properties. Like other embedded
+controls, it has its own text-selection boundary. Leave the callback unset
+for ordinary native inline hyperlinks and continuous surrounding prose
+selection; a custom horizontal stack is not equivalent to a text hyperlink.
+
 The trade-off vs. [WebView2](#webview2) is fidelity: `Markdown` does not
 support arbitrary HTML, embedded `<script>`, or CSS. It supports paragraphs,
 headings (h1–h6), lists (bullet, ordered, nested), inline code, fenced code

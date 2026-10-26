@@ -108,6 +108,7 @@ public UIElement? Reconcile(
         ForceFullRenderPending = false;
         _hotReloadRetryActive = HotReloadRetryPending;
         HotReloadRetryPending = false;
+        _ambientRequestedTheme = HostAmbientTheme;
 
         // Build the dirty-ancestor path. For every component node
         // whose SelfTriggered is true, walk up the realized visual

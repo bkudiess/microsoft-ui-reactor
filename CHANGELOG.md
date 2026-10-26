@@ -382,8 +382,9 @@ Conventions for contributors:
   re-resolve it. Rows an `ItemsView` realizes during layout had the same problem,
   because they mount outside any root pass. The host now seeds the reconciler's
   ambient theme from its inherited `RequestedTheme` for each root pass, layout-time
-  realization seeds it from the repeater, and a host that loads under a different
-  inherited theme than it rendered with forces a resource refresh.
+  realization seeds it from the repeater, and a change to the host's inherited theme
+  forces a resource refresh even through unchanged subtrees (including when a
+  theme-event render runs before the host's Loaded event).
 
 - **Source-map generator no longer fails under `dotnet watch`** (issue #1404, spec 010).
   When Reactor is a project reference, Hot Reload's workspace compilation sees Reactor's

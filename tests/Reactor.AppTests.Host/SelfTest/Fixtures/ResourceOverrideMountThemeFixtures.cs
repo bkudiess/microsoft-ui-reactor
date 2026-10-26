@@ -322,8 +322,8 @@ internal static class ResourceOverrideMountThemeFixtures
     /// renders while detached and is parented later. The parented arm is RED before
     /// the fix (it resolved the app-theme brush and stayed stale, since no theme change
     /// follows) and GREEN after (the reconciler seeds the host-inherited theme for root
-    /// passes). The detached arm is a regression guard for the Loaded-time resource
-    /// refresh that re-resolves a tree rendered under a different inherited theme. The
+    /// passes). The detached arm requires a skip-bypassing resource refresh even if
+    /// a theme-event render runs before Loaded. The
     /// realized-row arm covers ItemsView rows, which realize during layout outside any
     /// root pass and inherit the repeater's theme.
     /// </summary>
@@ -354,28 +354,50 @@ internal static class ResourceOverrideMountThemeFixtures
 
                 // Arm 2: rendered while detached, then parented under the themed ancestor.
                 var detachedHost = new ReactorHostControl();
-                detachedHost.Mount(ctx => Border(TextBlock("hostDetached"))
+                // Keep the root identical: a theme-event render alone skips its child.
+                var detachedTree = Border(Border(TextBlock("hostDetached"))
                     .Resources(r => r.Set(TargetKey, Theme.Ref(SrcKey))));
+                detachedHost.Mount(ctx => detachedTree);
                 await detachedHost.WaitForIdleAsync();
-                H.SetContent(new Border { RequestedTheme = ancestorTheme, Child = detachedHost });
+                var detachedChild = (detachedHost.Content as Border)?.Child as FrameworkElement;
+                H.Check("HostTheme_DetachedInitiallyAppBrush",
+                    ReferenceEquals(ResourceBrush(detachedChild, TargetKey), appBrush));
+                var detachedParent = new Border { RequestedTheme = ancestorTheme, Child = detachedHost };
+                H.SetContent(detachedParent);
                 var reResolved = await Harness.WaitFor(() =>
-                    ReferenceEquals(ResourceBrush(detachedHost.Content as FrameworkElement, TargetKey), ancestorBrush));
+                    ReferenceEquals(ResourceBrush(detachedChild, TargetKey), ancestorBrush));
                 H.Check("HostTheme_DetachedReResolvedOnLoaded", reResolved);
+                detachedParent.RequestedTheme = ElementTheme.Default;
+                H.Check("HostTheme_NestedOverrideFollowsAppTheme", await Harness.WaitFor(() =>
+                    ReferenceEquals(ResourceBrush(detachedChild, TargetKey), appBrush)));
+                detachedParent.RequestedTheme = ancestorTheme;
+                H.Check("HostTheme_NestedOverrideFollowsAncestorToggle", await Harness.WaitFor(() =>
+                    ReferenceEquals(ResourceBrush(detachedChild, TargetKey), ancestorBrush)));
                 H.SetContent(null);
                 detachedHost.Dispose();
 
                 // Arm 3: rows an ItemsView realizes during layout, outside any root pass.
                 var listHost = new ReactorHostControl();
-                H.SetContent(new Border { RequestedTheme = ancestorTheme, Child = listHost });
-                listHost.Mount(ctx => ItemsView(new[] { "rowA", "rowB" }, static s => s, (s, _) =>
+                var listParent = new Border { RequestedTheme = ancestorTheme, Child = listHost };
+                H.SetContent(listParent);
+                var listTree = ItemsView(new[] { "rowA", "rowB" }, static s => s, (s, _) =>
                         ItemContainer(Border(TextBlock(s)).Resources(r => r.Set(TargetKey, Theme.Ref(SrcKey))))
                             .WithKey(s))
-                    .Height(200));
+                    .Height(200);
+                listHost.Mount(ctx => listTree);
                 await listHost.WaitForIdleAsync();
                 var rowResolved = await Harness.WaitFor(() =>
                     H.FindControl<TextBlock>(t => t.Text == "rowA")?.Parent is FrameworkElement row &&
                     ReferenceEquals(ResourceBrush(row, TargetKey), ancestorBrush));
                 H.Check("HostTheme_RealizedRowResolvedAncestorBrush", rowResolved);
+                listParent.RequestedTheme = ElementTheme.Default;
+                H.Check("HostTheme_RealizedRowFollowsAppTheme", await Harness.WaitFor(() =>
+                    H.FindControl<TextBlock>(t => t.Text == "rowA")?.Parent is FrameworkElement row &&
+                    ReferenceEquals(ResourceBrush(row, TargetKey), appBrush)));
+                listParent.RequestedTheme = ancestorTheme;
+                H.Check("HostTheme_RealizedRowFollowsAncestorToggle", await Harness.WaitFor(() =>
+                    H.FindControl<TextBlock>(t => t.Text == "rowA")?.Parent is FrameworkElement row &&
+                    ReferenceEquals(ResourceBrush(row, TargetKey), ancestorBrush)));
                 H.SetContent(null);
                 listHost.Dispose();
             }

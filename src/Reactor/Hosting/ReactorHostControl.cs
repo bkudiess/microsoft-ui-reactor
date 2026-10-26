@@ -1000,6 +1000,12 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
 
             Element? newTree = null;
 
+            var hostTheme = InheritedRequestedTheme();
+            // ActualThemeChanged can render before Loaded. Refresh before consuming
+            // the pass signal so an unchanged tree cannot hide stale nested overrides.
+            if (_currentControl is not null && hostTheme != _renderedHostTheme)
+                _reconciler.RequestResourceRefresh();
+
             // Before the root render, so a resource notification that lands while the tree is
             // being built stays pending for the render it queues instead of being taken by this
             // pass, whose render may already have read the old resources.
@@ -1137,14 +1143,14 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
             UIElement? newControl;
             try
             {
-                _renderedHostTheme = InheritedRequestedTheme();
-                _reconciler.HostAmbientTheme = _renderedHostTheme;
+                _reconciler.HostAmbientTheme = hostTheme;
                 newControl = _reconciler.Reconcile(
                     _currentTree,
                     newTree,
                     _currentControl,
                     _requestRenderAction ??= RequestRender
                 );
+                _renderedHostTheme = hostTheme;
             }
             finally
             {

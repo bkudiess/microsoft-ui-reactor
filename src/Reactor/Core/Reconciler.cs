@@ -6943,7 +6943,7 @@ public sealed partial class Reconciler : IDisposable
     /// element is not yet parented and so an ancestor <c>RequestedTheme</c> is
     /// unreachable through <paramref name="fe"/>'s own visual-tree walk. Pass
     /// <see cref="ElementTheme.Default"/> to fall back to fe-based resolution
-    /// (host-window themes set outside the Reactor tree; the 3-arg overload).
+    /// (for example, callers of the 3-arg overload).
     /// </param>
     public static void ApplyResourceOverrides(
         FrameworkElement fe,
@@ -7002,8 +7002,7 @@ public sealed partial class Reconciler : IDisposable
         // resolve against it: at mount fe is not yet parented, so its own visual-tree
         // walk cannot see an ancestor RequestedTheme and would otherwise fall back to
         // the app theme (the mount-theme bug). When no ambient theme is supplied
-        // (Default — direct public-API callers, or a host/window theme set outside the
-        // Reactor tree), keep the fe-based resolution.
+        // (Default — for example, direct public-API callers), keep the fe-based resolution.
         foreach (var (key, themeRef) in newOverrides.ThemeRefs)
         {
             var resolved = effectiveTheme != ElementTheme.Default
@@ -7505,4 +7504,3 @@ public sealed partial class Reconciler : IDisposable
         return pendingPropagation;
     }
 }
-

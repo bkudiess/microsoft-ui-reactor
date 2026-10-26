@@ -374,7 +374,7 @@ Conventions for contributors:
 
 ### Fixed
 
-- **Markdown `LinkBuilder` now dispatches custom link rendering.** Safe links,
+- **Markdown `LinkBuilder` now dispatches custom link rendering** (#1401). Safe links,
   including angle-bracket autolinks, invoke the callback with their validated
   target and formatted label instead of silently navigating through the default
   hyperlink. Custom elements render inline with their own selection boundary;

@@ -71,7 +71,7 @@ public record MarkdownOptions
     /// <summary>Parser flags. Default: DialectGitHub (tables, strikethrough, task lists).</summary>
     public MarkdownParserFlags ParserFlags { get; init; } = MarkdownParserFlags.DialectGitHub;
     /// <summary>
-    /// Override link rendering. (displayInlines, navigateUri) → element.
+    /// Override link rendering. (label, navigateUri) → element.
     /// Apps that want to require a confirmation UX or unfurl/origin-preview
     /// for cross-site hyperlinks should provide this. TASK-048.
     /// The label is one selectable RichTextBlock element preserving inline
@@ -151,6 +151,7 @@ internal sealed class MarkdownBuilder
     private Uri? _linkUri;
     private int _linkInlineStart;
     private int _customLinkDepth;
+    private int _customImageDepth;
 
     // Image tracking.
     private bool _insideImage;
@@ -743,7 +744,7 @@ internal sealed class MarkdownBuilder
                 if (_options.LinkBuilder is not null)
                 {
                     // Image alt text and nested autolinks belong to the outer label.
-                    if (_insideImage) break;
+                    if (_customImageDepth > 0) break;
                     if (++_customLinkDepth > 1) break;
                 }
                 if (detail is MarkdownSpanADetail a && a.Href.Text is not null)
@@ -754,6 +755,7 @@ internal sealed class MarkdownBuilder
                 _linkInlineStart = _inlines.Count;
                 break;
             case MarkdownSpanType.Img:
+                if (_options.LinkBuilder is not null) _customImageDepth++;
                 _insideImage = true;
                 _imageAlt = new StringBuilder();
                 if (detail is MarkdownSpanImgDetail img && img.Src.Text is not null)
@@ -785,12 +787,13 @@ internal sealed class MarkdownBuilder
             case MarkdownSpanType.A:
                 if (_options.LinkBuilder is not null)
                 {
-                    if (_insideImage) break;
+                    if (_customImageDepth > 0) break;
                     if (--_customLinkDepth > 0) break;
                 }
                 LeaveLink();
                 break;
             case MarkdownSpanType.Img:
+                if (_options.LinkBuilder is not null) _customImageDepth--;
                 LeaveImage();
                 break;
         }

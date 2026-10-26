@@ -626,6 +626,28 @@ public class MarkdownBuilderTests
     }
 
     [Fact]
+    public void LinkBuilder_NestedImageAlt_DoesNotCorruptSubsequentLinkDepth()
+    {
+        var links = new List<(Element[] Label, Uri Target)>();
+        Md("![[x ![i](https://s.example/i.png)](https://u.example)](https://o.example/o.png) "
+            + "[see https://a.example now](https://b.example)", new MarkdownOptions
+        {
+            Image = (alt, _) => TextBlock(alt),
+            LinkBuilder = (label, target) =>
+            {
+                links.Add((label, target));
+                return TextBlock("custom link");
+            },
+        });
+
+        var link = Assert.Single(links);
+        Assert.Equal(new Uri("https://b.example"), link.Target);
+        var block = Assert.IsType<RichTextBlockElement>(Assert.Single(link.Label));
+        Assert.Equal("see https://a.example now",
+            string.Concat(FirstParagraph(block).Inlines.OfType<RichTextRun>().Select(run => run.Text)));
+    }
+
+    [Fact]
     public void LinkBuilder_PermissiveAutolinkInsideExplicitLink_KeepsOuterTargetAndLabel()
     {
         var links = new List<(Element[] Label, Uri Target)>();

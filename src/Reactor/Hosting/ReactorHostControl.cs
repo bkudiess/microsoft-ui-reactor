@@ -625,8 +625,21 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     // Set when Loaded-time root creation failed (issue #1291); cleared by Mount.
     private Exception? _activationError;
 
+    // RequestedTheme inherited from outside the Reactor tree at the last root pass.
+    private ElementTheme _renderedHostTheme;
+
+    private ElementTheme InheritedRequestedTheme() => Reconciler.InheritedRequestedTheme(this);
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // A tree rendered while detached resolved ThemeRef resource overrides without the
+        // theme this control inherits from its new ancestors. Re-resolve every one of them.
+        if (_currentControl is not null && InheritedRequestedTheme() != _renderedHostTheme)
+        {
+            _reconciler.RequestResourceRefresh();
+            RequestRender();
+        }
+
         if (_rootComponent is not null || _rootRenderFunc is not null)
             return; // Already mounted via Mount()
 
@@ -1124,6 +1137,8 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
             UIElement? newControl;
             try
             {
+                _renderedHostTheme = InheritedRequestedTheme();
+                _reconciler.HostAmbientTheme = _renderedHostTheme;
                 newControl = _reconciler.Reconcile(
                     _currentTree,
                     newTree,
@@ -1133,6 +1148,9 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
             }
             finally
             {
+                // The host theme applies to this root pass only; layout-time realization
+                // seeds its own from the repeater (Reconciler.EnterRealizationTheme).
+                _reconciler.HostAmbientTheme = ElementTheme.Default;
                 // The root owner names what this pass renders; a row an ItemsRepeater realizes
                 // or reuses later, during layout, has no known owner (see CurrentDiagnosticOwner).
                 _reconciler.DiagnosticRootOwner = null;

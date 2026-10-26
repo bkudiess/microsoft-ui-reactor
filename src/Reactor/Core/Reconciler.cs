@@ -104,6 +104,72 @@ public sealed partial class Reconciler : IDisposable
     // carries the reconciler's top-down knowledge so ThemeRef-backed ResourceOverrides
     // resolve their concrete brush against the correct effective theme at mount.
     private ElementTheme _ambientRequestedTheme = ElementTheme.Default;
+
+    /// <summary>
+    /// Theme the host inherits from outside the Reactor tree (for example a
+    /// <c>RequestedTheme</c> on the window root above a <c>ReactorHostControl</c>).
+    /// Seeds <see cref="_ambientRequestedTheme"/> for each top-level pass so
+    /// ThemeRef-backed resource overrides mounted before their control is parented
+    /// resolve against the host's theme instead of the app theme. Default keeps the
+    /// element-based resolution.
+    /// </summary>
+    internal ElementTheme HostAmbientTheme { get; set; } = ElementTheme.Default;
+
+    /// <summary>
+    /// The nearest explicit <c>RequestedTheme</c> on <paramref name="start"/> or its visual
+    /// ancestors, or Default. Covers themes set by Reactor on realized controls and themes
+    /// an app sets outside the Reactor tree (for example on a window root).
+    /// </summary>
+    internal static ElementTheme InheritedRequestedTheme(DependencyObject? start)
+    {
+        for (var node = start; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+        {
+            if (node is FrameworkElement { RequestedTheme: not ElementTheme.Default } themed)
+                return themed.RequestedTheme;
+        }
+        return ElementTheme.Default;
+    }
+
+    /// <summary>
+    /// Layout-time realization (an ItemsRepeater or ItemsView asking for a row) runs outside
+    /// any root pass, so no ambient theme is threaded to the row. Seed it from the parented
+    /// realization target so ThemeRef resource overrides on the still-unparented row resolve
+    /// against the theme it will render under. A realization nested in a pass keeps the
+    /// pass's ambient.
+    /// </summary>
+    internal RealizationThemeScope EnterRealizationTheme(DependencyObject? realizationParent)
+    {
+        if (_debugReconcileDepth > 0)
+            return default;
+        var scope = new RealizationThemeScope(this, HostAmbientTheme, _ambientRequestedTheme);
+        var inherited = InheritedRequestedTheme(realizationParent);
+        HostAmbientTheme = inherited;
+        _ambientRequestedTheme = inherited;
+        return scope;
+    }
+
+    internal readonly struct RealizationThemeScope : IDisposable
+    {
+        private readonly Reconciler? _owner;
+        private readonly ElementTheme _host;
+        private readonly ElementTheme _ambient;
+
+        internal RealizationThemeScope(Reconciler owner, ElementTheme host, ElementTheme ambient)
+        {
+            _owner = owner;
+            _host = host;
+            _ambient = ambient;
+        }
+
+        public void Dispose()
+        {
+            if (_owner is null)
+                return;
+            _owner.HostAmbientTheme = _host;
+            _owner._ambientRequestedTheme = _ambient;
+        }
+    }
+
     private int _errorBoundaryDepth;
 
     /// <summary>
@@ -2684,6 +2750,7 @@ public sealed partial class Reconciler : IDisposable
             ForceFullRenderPending = false;
             _hotReloadRetryActive = HotReloadRetryPending;
             HotReloadRetryPending = false;
+            _ambientRequestedTheme = HostAmbientTheme;
 
             // Build the dirty-ancestor path. For every component node
             // whose SelfTriggered is true, walk up the realized visual
@@ -2731,6 +2798,7 @@ public sealed partial class Reconciler : IDisposable
                 _forceFullRenderActive = false;
                 _resourceRefreshActive = false;
                 _hotReloadRetryActive = false;
+                _ambientRequestedTheme = ElementTheme.Default;
                 _dirtyAncestorPath?.Clear();
                 _dirtyPathChildren?.Clear();
             }

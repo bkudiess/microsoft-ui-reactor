@@ -601,6 +601,8 @@ public sealed partial class ElementFactory<T> : IElementFactory
 
         var item = _items[index];
         var element = BuildOrCache(key, item, index, keyed);
+        // Rows realize during layout, outside any root pass: inherit the repeater's theme.
+        using var realizationTheme = _reconciler.EnterRealizationTheme(args.Parent);
 
         UIElement? control;
         if (TryTakeCompatibleFromPool(element, out var reused, out var oldElement, out var parkedVisibility))

@@ -374,6 +374,17 @@ Conventions for contributors:
 
 ### Fixed
 
+- **ThemeRef resource overrides follow a `RequestedTheme` set outside the Reactor tree**
+  (follow-up to #771). When an app themes a native ancestor of a `ReactorHostControl`
+  (for example `RequestedTheme = Dark` on the window root under a Light app),
+  `.Resources(r => r.Set(key, Theme.Ref(...)))` overrides resolved against the app
+  theme: at mount the control is not yet parented, and no theme change follows to
+  re-resolve it. Rows an `ItemsView` realizes during layout had the same problem,
+  because they mount outside any root pass. The host now seeds the reconciler's
+  ambient theme from its inherited `RequestedTheme` for each root pass, layout-time
+  realization seeds it from the repeater, and a host that loads under a different
+  inherited theme than it rendered with forces a resource refresh.
+
 - **Source-map generator no longer fails under `dotnet watch`** (issue #1404, spec 010).
   When Reactor is a project reference, Hot Reload's workspace compilation sees Reactor's
   symbols with their source, so a component calling a hook that is not on `Component`

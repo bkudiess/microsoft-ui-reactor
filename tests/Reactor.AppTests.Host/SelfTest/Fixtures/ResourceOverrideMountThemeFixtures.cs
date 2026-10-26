@@ -311,6 +311,84 @@ internal static class ResourceOverrideMountThemeFixtures
     }
 
     // ════════════════════════════════════════════════════════════════════
+    //  Host-inherited theme — RequestedTheme set OUTSIDE the Reactor tree
+    // ════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// An app sets <c>RequestedTheme</c> on a native ancestor of a
+    /// <c>ReactorHostControl</c> (typically the window root) rather than inside the
+    /// Reactor tree. ThemeRef-backed resource overrides must resolve against that
+    /// inherited theme at mount, whether the host renders after it is parented or
+    /// renders while detached and is parented later. The parented arm is RED before
+    /// the fix (it resolved the app-theme brush and stayed stale, since no theme change
+    /// follows) and GREEN after (the reconciler seeds the host-inherited theme for root
+    /// passes). The detached arm is a regression guard for the Loaded-time resource
+    /// refresh that re-resolves a tree rendered under a different inherited theme. The
+    /// realized-row arm covers ItemsView rows, which realize during layout outside any
+    /// root pass and inherit the repeater's theme.
+    /// </summary>
+    internal sealed class HostInheritedThemeResolvesAtMount(Harness h) : SelfTestFixtureBase(h)
+    {
+        private const string SrcKey = "HostInheritedThemedBrush";
+        private const string TargetKey = "HostInheritedTarget";
+
+        public override async Task RunAsync()
+        {
+            var light = MakeBrush(0, 0, 120);
+            var dark = MakeBrush(120, 0, 0);
+            var (ancestorTheme, ancestorBrush, appBrush) = AncestorAgainstApp(light, dark);
+            var dict = InstallThemedDict(SrcKey, light, dark);
+            try
+            {
+                // Arm 1: parented under the themed native ancestor before the first render.
+                var parentedHost = new ReactorHostControl();
+                H.SetContent(new Border { RequestedTheme = ancestorTheme, Child = parentedHost });
+                parentedHost.Mount(ctx => Border(TextBlock("hostParented"))
+                    .Resources(r => r.Set(TargetKey, Theme.Ref(SrcKey))));
+                await parentedHost.WaitForIdleAsync();
+                var parentedResolved = ResourceBrush(parentedHost.Content as FrameworkElement, TargetKey);
+                H.Check("HostTheme_ParentedResolvedAncestorBrush", ReferenceEquals(parentedResolved, ancestorBrush));
+                H.Check("HostTheme_ParentedNotAppBrush", !ReferenceEquals(parentedResolved, appBrush));
+                H.SetContent(null);
+                parentedHost.Dispose();
+
+                // Arm 2: rendered while detached, then parented under the themed ancestor.
+                var detachedHost = new ReactorHostControl();
+                detachedHost.Mount(ctx => Border(TextBlock("hostDetached"))
+                    .Resources(r => r.Set(TargetKey, Theme.Ref(SrcKey))));
+                await detachedHost.WaitForIdleAsync();
+                H.SetContent(new Border { RequestedTheme = ancestorTheme, Child = detachedHost });
+                var reResolved = await Harness.WaitFor(() =>
+                    ReferenceEquals(ResourceBrush(detachedHost.Content as FrameworkElement, TargetKey), ancestorBrush));
+                H.Check("HostTheme_DetachedReResolvedOnLoaded", reResolved);
+                H.SetContent(null);
+                detachedHost.Dispose();
+
+                // Arm 3: rows an ItemsView realizes during layout, outside any root pass.
+                var listHost = new ReactorHostControl();
+                H.SetContent(new Border { RequestedTheme = ancestorTheme, Child = listHost });
+                listHost.Mount(ctx => ItemsView(new[] { "rowA", "rowB" }, static s => s, (s, _) =>
+                        ItemContainer(Border(TextBlock(s)).Resources(r => r.Set(TargetKey, Theme.Ref(SrcKey))))
+                            .WithKey(s))
+                    .Height(200));
+                await listHost.WaitForIdleAsync();
+                var rowResolved = await Harness.WaitFor(() =>
+                    H.FindControl<TextBlock>(t => t.Text == "rowA")?.Parent is FrameworkElement row &&
+                    ReferenceEquals(ResourceBrush(row, TargetKey), ancestorBrush));
+                H.Check("HostTheme_RealizedRowResolvedAncestorBrush", rowResolved);
+                H.SetContent(null);
+                listHost.Dispose();
+            }
+            finally
+            {
+                H.SetContent(null);
+                Application.Current.Resources.MergedDictionaries.Remove(dict);
+                global::Microsoft.UI.Reactor.Core.ThemeRef.InvalidateResolutionCache();
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     //  Sibling isolation — the ambient save/restore must not leak across peers
     // ════════════════════════════════════════════════════════════════════
 

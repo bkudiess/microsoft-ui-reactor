@@ -108,6 +108,132 @@ namespace TestApp
         }.RunAsync(TestContext.Current.CancellationToken);
     }
 
+    // The type check must not hide real element projections whose element-ness
+    // comes from a conversion or a generic constraint rather than the body's
+    // natural type.
+    private const string ChartSource = @"
+    public record Row(string Id, string Text);
+
+    // Like Reactor.Advanced's ChartElement<T>: not an Element subclass, but
+    // implicitly convertible to one.
+    public sealed record Chart(string Title)
+    {
+        public static implicit operator Element(Chart chart) => TextBlock(chart.Title);
+    }";
+
+    [Fact]
+    public async Task Fires_On_ForEach_Body_Implicitly_Converted_To_Element()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+" + ChartSource + @"
+
+    public static class C
+    {
+        static Chart MakeChart(Row r) => new(r.Text);
+
+        public static Element Build(IReadOnlyList<Row> rows)
+            => FlexColumn({|REACTOR_DSL_001:ForEach(rows, r => MakeChart(r))|});
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_On_Explicit_Element_Select_Of_Convertible_Body()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+" + ChartSource + @"
+
+    public static class C
+    {
+        static Chart MakeChart(Row r) => new(r.Text);
+
+        public static Element Build(IReadOnlyList<Row> rows)
+            => VStack({|REACTOR_DSL_001:rows.Select<Row, Element>(r => MakeChart(r))|}.ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_On_Select_Projecting_Element_Constrained_Type_Parameter()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System;
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public record Row(string Id, string Text);
+
+    public static class C
+    {
+        public static Element Direct<TEl>(IReadOnlyList<Row> rows, Func<Row, TEl> render)
+            where TEl : Element
+            => VStack({|REACTOR_DSL_001:rows.Select(r => render(r))|}.ToArray());
+
+        public static Element Transitive<TBase, TEl>(IReadOnlyList<Row> rows, Func<Row, TEl> render)
+            where TBase : Element
+            where TEl : class, TBase
+            => VStack({|REACTOR_DSL_001:rows.Select(r => render(r))|}.ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task No_Diagnostic_On_Select_Projecting_Strings_Into_A_Layout_Factory()
+    {
+        // string converts to Element implicitly, but a Select that infers string
+        // builds string values (e.g. legacy track definitions), not children.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+
+    public static class C
+    {
+        static Element Grid(string[] columns, params Element[] children) => null!;
+
+        public static Element Build(IReadOnlyList<double> widths)
+            => Grid(widths.Select(w => w.ToString()).ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task Fires_On_Select_Into_FlexColumn_Without_WithKey()
     {

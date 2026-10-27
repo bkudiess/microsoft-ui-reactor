@@ -374,6 +374,13 @@ Conventions for contributors:
 
 ### Fixed
 
+- **`REACTOR_A11Y_001` no longer flags text buttons with a non-literal string label**
+  (spec 006 §6.3). `Button(S("Usage_Refresh"), onClick)` — a localized resource lookup,
+  a `string` variable, or an interpolated string — was reported as an icon-only button
+  needing `.AutomationName(...)` because only string *literals* were recognised as text
+  content. The analyzer now also skips any first argument whose semantic type is
+  `string`; element/icon content still reports.
+
 - **Source-map generator no longer fails under `dotnet watch`** (issue #1404, spec 010).
   When Reactor is a project reference, Hot Reload's workspace compilation sees Reactor's
   symbols with their source, so a component calling a hook that is not on `Component`

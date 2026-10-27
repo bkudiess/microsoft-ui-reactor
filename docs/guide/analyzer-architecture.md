@@ -114,9 +114,20 @@ private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
     if (HasModifierInChain(invocation, "AutomationName"))
         return;
 
+    // Button(string label, action) is a text button even when the label is not a
+    // literal (for example a localized resource lookup); its content names it.
+    if (IsStringTyped(firstArg, context))
+        return;
+
     context.ReportDiagnostic(Diagnostic.Create(
         Rule,
         invocation.GetLocation()));
+}
+
+private static bool IsStringTyped(ExpressionSyntax expression, SyntaxNodeAnalysisContext context)
+{
+    var type = context.SemanticModel.GetTypeInfo(expression, context.CancellationToken).Type;
+    return type?.SpecialType == SpecialType.System_String;
 }
 ```
 
@@ -128,6 +139,9 @@ a `.AutomationName(...)` modifier. The walk caps at the enclosing
 statement so a chain that wanders into another statement doesn't
 falsely satisfy the rule. The `HasModifierInChain` helper is the same
 shape every analyzer that needs to look at trailing modifiers uses.
+Only after those cheap syntactic filters does it ask the semantic model
+for the first argument's type: a `string`-typed label (a localized
+resource lookup, a variable) is a text button and needs no extra name.
 
 ## The current diagnostic set
 

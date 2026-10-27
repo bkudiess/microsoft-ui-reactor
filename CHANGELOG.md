@@ -378,8 +378,10 @@ Conventions for contributors:
   (spec 006 §6.3). `Button(S("Usage_Refresh"), onClick)` — a localized resource lookup,
   a `string` variable, or an interpolated string — was reported as an icon-only button
   needing `.AutomationName(...)` because only string *literals* were recognised as text
-  content. The analyzer now also skips any first argument whose semantic type is
-  `string`; element/icon content still reports.
+  content. The analyzer now also skips any first argument whose semantic type is (or
+  implicitly converts to) `string`; element/icon content still reports. Icon-glyph or
+  emoji *strings* remain the runtime `AccessibilityScanner` A11Y_001 check's job, as
+  string literals already were.
 
 - **Source-map generator no longer fails under `dotnet watch`** (issue #1404, spec 010).
   When Reactor is a project reference, Hot Reload's workspace compilation sees Reactor's

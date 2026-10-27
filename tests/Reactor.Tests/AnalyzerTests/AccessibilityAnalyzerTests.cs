@@ -109,6 +109,42 @@ class C
     }
 
     [Fact]
+    public async Task Button_With_Real_Overload_Set_Distinguishes_Text_From_Element_Content()
+    {
+        // Mirrors Dsl.cs: Button(string, ...) and Button(Element, ...), where Element has an
+        // implicit conversion from string. A label type with an implicit conversion to
+        // string binds to the text overload, so it is a text button too.
+        var test = @"
+abstract class Element
+{
+    public static implicit operator Element(string text) => null;
+}
+sealed class LocalizedString
+{
+    public static implicit operator string(LocalizedString s) => null;
+}
+class C
+{
+    static object Button(string label, System.Action onClick = null) => null;
+    static object Button(Element content, System.Action onClick = null) => null;
+    static string S(string key) => key;
+
+    void M(string label, LocalizedString localized, Element icon)
+    {
+        Button(label, () => { });
+        Button(S(""Usage_Refresh""), () => { });
+        Button(localized, () => { });
+        {|REACTOR_A11Y_001:Button(icon, () => { })|};
+    }
+}";
+        var analyzerTest = new CSharpAnalyzerTest<IconButtonAccessibilityAnalyzer, DefaultVerifier>
+        {
+            TestCode = test,
+        };
+        await analyzerTest.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task TextButton_No_Diagnostic()
     {
         var test = @"

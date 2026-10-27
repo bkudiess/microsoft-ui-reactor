@@ -83,8 +83,11 @@ public sealed class IconButtonAccessibilityAnalyzer : DiagnosticAnalyzer
 
     private static bool IsStringTyped(ExpressionSyntax expression, SyntaxNodeAnalysisContext context)
     {
-        var type = context.SemanticModel.GetTypeInfo(expression, context.CancellationToken).Type;
-        return type?.SpecialType == SpecialType.System_String;
+        // ConvertedType covers a label type with an implicit conversion to string that
+        // binds to the Button(string, ...) overload.
+        var info = context.SemanticModel.GetTypeInfo(expression, context.CancellationToken);
+        return info.Type?.SpecialType == SpecialType.System_String
+            || info.ConvertedType?.SpecialType == SpecialType.System_String;
     }
     // </snippet:a11y-rule>
 

@@ -27,6 +27,7 @@ namespace Microsoft.UI.Reactor.Core
     public interface IReactorKeyed { string Key { get; } }
     public abstract record Element { public string? Key { get; init; } }
     public sealed record TextBlockElement(string Text) : Element { }
+    public readonly record struct GridSize(double Value) { public static GridSize Star(double weight = 1) => new(weight); }
 
     public static class Factories
     {
@@ -35,6 +36,7 @@ namespace Microsoft.UI.Reactor.Core
         public static Element FlexColumn(params Element[] children) => null!;
         public static Element FlexRow(params Element[] children) => null!;
         public static Element Grid(params Element[] children) => null!;
+        public static Element Grid(GridSize[] columns, GridSize[] rows, params Element[] children) => null!;
         public static TextBlockElement TextBlock(string s) => new(s);
 
         // Reactor's ForEach factory (Dsl.cs) — a static entry point called as a
@@ -54,6 +56,57 @@ namespace Microsoft.UI.Reactor.Core
 ";
 
     // ── Analyzer-only assertions ───────────────────────────────────────
+
+    [Fact]
+    public async Task No_Diagnostic_On_Select_Projecting_Grid_Definitions()
+    {
+        // Grid column/row definitions are layout-factory arguments built with
+        // Select, but they are values, not elements: there is nothing to key.
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<string> days)
+            => Grid(days.Select(_ => GridSize.Star()).ToArray(), new[] { GridSize.Star() }, TextBlock(""x""));
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Fires_On_Element_Children_Next_To_Select_Projected_Grid_Definitions()
+    {
+        var source = Stubs + @"
+namespace TestApp
+{
+    using System.Linq;
+    using System.Collections.Generic;
+    using Microsoft.UI.Reactor.Core;
+    using static Microsoft.UI.Reactor.Core.Factories;
+
+    public static class C
+    {
+        public static Element Build(IReadOnlyList<string> days)
+            => Grid(days.Select(_ => GridSize.Star()).ToArray(), new[] { GridSize.Star() },
+                {|REACTOR_DSL_001:days.Select(d => TextBlock(d))|}.ToArray());
+    }
+}";
+
+        await new CSharpAnalyzerTest<MissingWithKeyAnalyzer, DefaultVerifier>
+        {
+            TestCode = source,
+        }.RunAsync(TestContext.Current.CancellationToken);
+    }
 
     [Fact]
     public async Task Fires_On_Select_Into_FlexColumn_Without_WithKey()

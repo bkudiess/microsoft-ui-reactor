@@ -384,6 +384,47 @@ Conventions for contributors:
   (spec 047 §6.1). The suggestions binding now writes an empty array to the
   native `ItemsSource` instead of skipping the update, preserving the existing
   control and allowing later suggestions to repopulate it.
+- **ThemeRef resource overrides follow a `RequestedTheme` set outside the Reactor tree**
+  (follow-up to #771). When an app themes a native ancestor of a `ReactorHostControl`
+  or a `ReactorHost.ContentTarget`
+  (for example `RequestedTheme = Dark` on the window root under a Light app),
+  `.Resources(r => r.Set(key, Theme.Ref(...)))` overrides resolved against the app
+  theme: at mount the control is not yet parented, and no theme change follows to
+  re-resolve it. ListView, GridView, TreeView and ItemsView/ItemsRepeater rows realized
+  during layout had the same problem, because they mount outside any root pass.
+  Both hosts now supply a native theme anchor to the reconciler, including for custom
+  error fallbacks. Layout-time realization inherits its container's theme, pooled rows
+  refresh unchanged descendants when reused under a different theme, and a change to the host's inherited theme
+  forces a resource refresh even through unchanged subtrees (including when a
+  theme-event render runs before the host's Loaded event).
+
+- **Diagnostics an inspector relies on (winapp DevTools) are no longer missing or anonymous**
+  (issue #1421, spec 044 / spec 010 / spec 042).
+  - A commit-phase failure that replaces a window's content with the error screen now raises a
+    new `ReactorEventSource.CommitError` event (EventId 41: phase, host root component,
+    exception type). Before, nothing was raised while the window showed the error.
+  - `ReactorEventSource.WindowOpened` / `WindowClosed` were declared but never raised; windows
+    opened through `ReactorApp.OpenWindow` / `Run` now report both (root component type, HWND).
+  - `UseElementRef<T>()` is counted as the single hook slot it is, so the source map's
+    `hooks=` list keeps the ref's name and the indices of every later hook.
+  - Templated `ListView<T>` / `GridView<T>` / `FlipView<T>` rows carry their `KeySelector` key
+    on the realized element (its element tag and published `key=`), as `LazyVStack` /
+    `VirtualList` rows already did. FlipView pages are still matched by position.
+  - A list born with a null or duplicated key (including `LazyVStack`, which used to swap a
+    null key for `__null_N` silently) is reported at mount, and a null key met during an update
+    is reported on every keyed list (the item is still matched by position, and the rest of the
+    list now always diffs incrementally instead of resetting on some paths). Duplicate
+    `.WithKey` siblings in a panel (`VStack(… .WithKey("same"), … .WithKey("same"))`) are
+    reported too. Every `KeyedListDiagnostic` now carries `ComponentName` (while an inspector is
+    attached) and `CallSite`, and the logged warning names both.
+  - `MenuItem(…)` / `AppBarButton(…)` and the other menu and command-bar item factories are
+    source-mapped (new `CallSite` on `MenuFlyoutItemBase` / `AppBarItemBase`, excluded from
+    equality), and the items a `MenuFlyout`, `CommandBarFlyout`, `MenuBar` or `CommandBar`
+    builds publish their `ReactorSource` value, so `ReactorSourceMap.GetSource` and inspectors
+    map them back to C# and their owning component.
+  - `TabView`, `Pivot`, `ListView`, `GridView` and `FlipView` accept a plain `int` selected
+    index (it was ambiguous between `int?` and `Optional<int>`, CS0121), and new `XamlHost(…)` /
+    `XamlPage(…)` factories record a call site for `XamlHostElement` / `XamlPageElement`.
 
 - **Markdown `LinkBuilder` is now invoked** (#1401). Previously the callback was
   ignored and every link rendered as a default hyperlink. Each link whose target

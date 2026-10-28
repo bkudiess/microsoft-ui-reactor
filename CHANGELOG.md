@@ -374,6 +374,11 @@ Conventions for contributors:
 
 ### Fixed
 
+- **`AutoSuggestBox` clears stale choices when `Suggestions` becomes empty**
+  (spec 047 §6.1). The suggestions binding now writes an empty array to the
+  native `ItemsSource` instead of skipping the update, preserving the existing
+  control and allowing later suggestions to repopulate it.
+
 - **A conditional child no longer shifts its unkeyed siblings** (issue #1423). The
   container factories drop `null` / `Empty()` arguments and flatten `Group(...)`, so
   toggling `cond ? X : Empty()` moved every later sibling down one index and the

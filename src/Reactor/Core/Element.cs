@@ -3844,10 +3844,9 @@ public partial record AutoSuggestBoxElement(
     // reused verbatim from the hand-written descriptor (shared AutoSuggestBoxEventPayload).
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AutoSuggestBoxElement, WinUI.AutoSuggestBox> Customize(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AutoSuggestBoxElement, WinUI.AutoSuggestBox> d)
-        => d.OneWayConditional(
+        => d.OneWay(
                 get:         static e => e.Suggestions,
-                set:         static (c, v) => c.ItemsSource = v,
-                shouldWrite: static e => e.Suggestions.Length > 0)
+                set:         static (c, v) => c.ItemsSource = v)
             .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.AutoSuggestBoxEventPayload, string,
                 global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxTextChangedEventArgs>>(
                 get:         static e => e.Text,

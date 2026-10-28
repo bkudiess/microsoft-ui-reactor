@@ -374,8 +374,16 @@ internal static class ControlUpdateFixtures2
             {
                 var (phase, set) = ctx.UseState(0);
                 return VStack(
-                    Button("UpdASB", () => set(1)),
-                    AutoSuggestBox(phase == 0 ? "asb_query" : "asb_changed")
+                    Button("UpdASB", () => set(phase + 1)),
+                    AutoSuggestBox(phase == 0 ? "asb_query" : "asb_changed") with
+                    {
+                        Suggestions = phase switch
+                        {
+                            2 => [],
+                            3 => ["c"],
+                            _ => ["a", "b"],
+                        },
+                    }
                 );
             });
 
@@ -388,6 +396,19 @@ internal static class ControlUpdateFixtures2
 
             H.Check("ASBUpdate_StillPresent",
                 H.FindControl<AutoSuggestBox>(_ => true) is not null);
+            var box = H.FindControl<AutoSuggestBox>(_ => true);
+            H.Check("ASBUpdate_TextChanged", box?.Text == "asb_changed");
+            H.Check("ASBUpdate_InitialSuggestions", box?.Items.Cast<string>().SequenceEqual(["a", "b"]) == true);
+
+            H.ClickButton("UpdASB");
+            await Harness.Render();
+            H.Check("ASBUpdate_EmptySuggestionsClearItems", box?.Items.Count == 0);
+            H.Check("ASBUpdate_ClearDoesNotRemount",
+                ReferenceEquals(box, H.FindControl<AutoSuggestBox>(_ => true)));
+
+            H.ClickButton("UpdASB");
+            await Harness.Render();
+            H.Check("ASBUpdate_SuggestionsRepopulate", box?.Items.Cast<string>().SequenceEqual(["c"]) == true);
         }
     }
 }

@@ -647,6 +647,175 @@ public class MarkdownBuilderTests
             string.Concat(FirstParagraph(block).Inlines.OfType<RichTextRun>().Select(run => run.Text)));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LinkBuilder_NestedImageLabel_RetainsOuterImageAndCompleteAltText(bool unified)
+    {
+        var image = TextBlock("outer image");
+        var images = new List<(string Alt, Uri Source)>();
+        var links = new List<(Element[] Label, Uri Target)>();
+        Md("[![outer ![inner](https://img.example/inner.png) tail](https://img.example/outer.png)](https://target.example)"
+            + " and [next](https://next.example)", new MarkdownOptions
+        {
+            UnifiedRichText = unified,
+            Image = (alt, source) =>
+            {
+                images.Add((alt, source));
+                return image;
+            },
+            LinkBuilder = (label, target) =>
+            {
+                links.Add((label, target));
+                return TextBlock("custom link");
+            },
+        });
+
+        var renderedImage = Assert.Single(images);
+        Assert.Equal("outer inner tail", renderedImage.Alt);
+        Assert.Equal(new Uri("https://img.example/outer.png"), renderedImage.Source);
+        Assert.Equal(2, links.Count);
+        Assert.Equal(new Uri("https://target.example"), links[0].Target);
+        var labelBlock = Assert.IsType<RichTextBlockElement>(Assert.Single(links[0].Label));
+        var labelInline = Assert.IsType<RichTextInlineUIContainer>(Assert.Single(FirstParagraph(labelBlock).Inlines));
+        Assert.Same(image, labelInline.Child);
+        Assert.Equal(new Uri("https://next.example"), links[1].Target);
+        var nextLabel = Assert.IsType<RichTextBlockElement>(Assert.Single(links[1].Label));
+        Assert.Equal("next", Inline<RichTextRun>(nextLabel, 0).Text);
+    }
+
+    [Theory]
+    [InlineData("./page")]
+    [InlineData("javascript:alert(1)")]
+    public void LinkBuilder_RejectedOuterTarget_DoesNotPromoteNestedAutolink(string target)
+    {
+        var calls = 0;
+        var result = Md($"[see https://a.example now]({target})", new MarkdownOptions
+        {
+            LinkBuilder = (_, _) =>
+            {
+                calls++;
+                return TextBlock("unexpected link");
+            },
+        });
+
+        Assert.Equal(0, calls);
+        var block = Child<RichTextBlockElement>(AsVStack(result), 0);
+        var inlines = FirstParagraph(block).Inlines;
+        Assert.All(inlines, inline => Assert.IsType<RichTextRun>(inline));
+        Assert.Equal("see https://a.example now", string.Concat(inlines.OfType<RichTextRun>().Select(run => run.Text)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LinkBuilder_StandaloneImageAfterLink_IsNotPromotedToInline(bool custom)
+    {
+        var image = TextBlock("standalone image");
+        var calls = 0;
+        var images = 0;
+        var result = Md("[a](https://x.example) ![i](https://img.example/i.png)", new MarkdownOptions
+        {
+            Image = (alt, source) =>
+            {
+                images++;
+                Assert.Equal("i", alt);
+                Assert.Equal(new Uri("https://img.example/i.png"), source);
+                return image;
+            },
+            LinkBuilder = custom ? (_, _) =>
+            {
+                calls++;
+                return TextBlock("custom link");
+            } : null,
+        });
+
+        Assert.Equal(1, images);
+        Assert.Equal(custom ? 1 : 0, calls);
+        var block = Child<RichTextBlockElement>(AsVStack(result), 0);
+        var inlines = FirstParagraph(block).Inlines;
+        Assert.Equal(2, inlines.Length);
+        Assert.Equal(" ", Assert.IsType<RichTextRun>(inlines[1]).Text);
+        if (custom)
+            Assert.IsType<RichTextInlineUIContainer>(inlines[0]);
+        else
+            Assert.IsType<RichTextHyperlink>(inlines[0]);
+        Assert.DoesNotContain(inlines.OfType<RichTextInlineUIContainer>(), inline => ReferenceEquals(inline.Child, image));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LinkBuilder_HeadingLabel_IncludesHeadingSizeAndWeight(bool unified)
+    {
+        RichTextBlockElement? labelBlock = null;
+        Md("# See [**docs** and *examples*](https://example.com)", new MarkdownOptions
+        {
+            UnifiedRichText = unified,
+            LinkBuilder = (label, _) =>
+            {
+                labelBlock = Assert.IsType<RichTextBlockElement>(Assert.Single(label));
+                return labelBlock;
+            },
+        });
+
+        Assert.NotNull(labelBlock);
+        Assert.Equal(28, labelBlock.FontSize);
+        Assert.True(labelBlock.IsTextSelectionEnabled);
+        var inlines = FirstParagraph(labelBlock).Inlines;
+        Assert.All(inlines, inline => Assert.True(Assert.IsType<RichTextRun>(inline).IsBold));
+        Assert.Contains(inlines, inline => inline is RichTextRun { Text: "examples", IsItalic: true });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LinkBuilder_TableHeaderLabel_IsBoldAndBodyLabelIsNot(bool unified)
+    {
+        var labels = new List<RichTextBlockElement>();
+        Md("| [head](https://head.example) |\n| --- |\n| [body](https://body.example) |", new MarkdownOptions
+        {
+            UnifiedRichText = unified,
+            TableHeaderBackground = null,
+            LinkBuilder = (label, _) =>
+            {
+                var block = Assert.IsType<RichTextBlockElement>(Assert.Single(label));
+                labels.Add(block);
+                return block;
+            },
+        });
+
+        Assert.Equal(2, labels.Count);
+        Assert.True(Inline<RichTextRun>(labels[0], 0).IsBold);
+        Assert.False(Inline<RichTextRun>(labels[1], 0).IsBold);
+        Assert.Null(labels[0].FontSize);
+        Assert.Null(labels[1].FontSize);
+    }
+
+    [Fact]
+    public void LinkBuilder_TightListLabel_RetainsInlineFormatting()
+    {
+        RichTextBlockElement? labelBlock = null;
+        var result = Md("- before [*docs*](https://example.com) after", new MarkdownOptions
+        {
+            LinkBuilder = (label, _) =>
+            {
+                labelBlock = Assert.IsType<RichTextBlockElement>(Assert.Single(label));
+                return labelBlock;
+            },
+        });
+
+        Assert.NotNull(labelBlock);
+        Assert.True(Inline<RichTextRun>(labelBlock, 0).IsItalic);
+        Assert.False(Inline<RichTextRun>(labelBlock, 0).IsBold);
+        Assert.Null(labelBlock.FontSize);
+        var list = Child<StackElement>(AsVStack(result), 0);
+        var row = Child<GridElement>(list, 0);
+        var content = Assert.IsType<RichTextBlockElement>(row.Children[1]);
+        var link = Assert.Single(FirstParagraph(content).Inlines.OfType<RichTextInlineUIContainer>());
+        Assert.Same(labelBlock, link.Child);
+    }
+
     [Fact]
     public void LinkBuilder_PermissiveAutolinkInsideExplicitLink_KeepsOuterTargetAndLabel()
     {

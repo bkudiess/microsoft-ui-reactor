@@ -374,14 +374,13 @@ Conventions for contributors:
 
 ### Fixed
 
-- **Markdown `LinkBuilder` now dispatches custom link rendering** (#1401). Safe links,
-  including angle-bracket autolinks, invoke the callback with their validated
-  target and formatted label instead of silently navigating through the default
-  hyperlink. Custom elements render inline with their own selection boundary;
-  labels retain inline formatting, heading and table-header typography, and
-  linked images, including outer image source/alt text for nested images.
-  With no callback, native inline hyperlink behavior is unchanged. Null
-  callback results fail explicitly.
+- **Markdown `LinkBuilder` is now invoked** (#1401). Previously the callback was
+  ignored and every link rendered as a default hyperlink. Each link whose target
+  passes the URI policy now calls it with that URI and the formatted label, and
+  the returned element renders inline. Links nested in a label stay part of the
+  outer link. If the outer target is rejected, the whole label renders as plain
+  text, and a URL inside it does not become a separate link. Links render as
+  before when no callback is set.
 
 - **A conditional child no longer shifts its unkeyed siblings** (issue #1423). The
   container factories drop `null` / `Empty()` arguments and flatten `Group(...)`, so

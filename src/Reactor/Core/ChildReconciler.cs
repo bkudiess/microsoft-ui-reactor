@@ -68,15 +68,21 @@ internal static class ChildReconciler
         // transition in this collection (they inflate its count); the index walk would pair
         // every later child with the wrong control.
         else if (!ChildSlots.AlignByIndex(oldSlots, oldFiltered.Length, newSlots, newFiltered.Length)
-            || HoldsExitingControls(oldFiltered, children, reconciler))
+            || HoldsExitingControls(children, reconciler))
             ReconcileSlotted(oldFiltered, oldSlots, newFiltered, newSlots, children, reconciler, requestRerender, ambientKind, dirty);
         else
             ReconcilePositional(oldFiltered, newFiltered, children, reconciler, requestRerender, ambientKind, parentControl, dirty);
     }
     // </snippet:child-diff>
 
-    private static bool HoldsExitingControls(Element[] oldChildren, IChildCollection children, Reconciler reconciler) =>
-        reconciler.HasExitingControls && children.Count != oldChildren.Length;
+    private static bool HoldsExitingControls(IChildCollection children, Reconciler reconciler)
+    {
+        if (!reconciler.HasExitingControls) return false;
+        int count = children.Count;
+        for (int i = 0; i < count; i++)
+            if (reconciler.IsExiting(children.Get(i))) return true;
+        return false;
+    }
 
     /// <summary>
     /// Unkeyed reconciliation when a conditional child (null / <see cref="EmptyElement"/> /
@@ -110,7 +116,7 @@ internal static class ChildReconciler
         // The old child's index in the collection as it was when `dirty` was resolved: the
         // old children plus any control an earlier pass left exiting.
         int resolved = start;
-        bool skipExiting = HoldsExitingControls(oldChildren, children, reconciler);
+        bool skipExiting = HoldsExitingControls(children, reconciler);
         while (oi < oldChildren.Length || ni < newChildren.Length)
         {
             if (skipExiting && oi < oldChildren.Length)
@@ -422,26 +428,32 @@ internal static class ChildReconciler
         AnimationKind? ambientKind,
         in DirtyChildIndices dirty)
     {
-        if (!HoldsExitingControls(oldChildren, children, reconciler))
+        if (children.Count == oldChildren.Length && !HoldsExitingControls(children, reconciler))
         {
             ReconcileKeyedCore(oldChildren, newChildren, children, reconciler, requestRerender, ambientKind, dirty, null);
             return;
         }
 
-        // Logical old children exclude controls retained by an earlier exit. Snapshot their
-        // physical indices before any mutations, in the same index space as `dirty`.
+        // Logical children can include an unrealized transparent Memo and exclude retained
+        // exits. Keyed controls carry their owner's key, so an absent slot must not consume
+        // the next sibling. Use count as the absent sentinel, outside the physical indices.
         var oldToPanel = ArrayPool<int>.Shared.Rent(oldChildren.Length);
         try
         {
             int count = children.Count;
-            int logical = 0;
-            for (int physical = 0; physical < count && logical < oldChildren.Length; physical++)
+            int physical = 0;
+            for (int logical = 0; logical < oldChildren.Length; logical++)
             {
-                if (!reconciler.IsExiting(children.Get(physical)))
-                    oldToPanel[logical++] = physical;
+                while (physical < count && reconciler.IsExiting(children.Get(physical)))
+                    physical++;
+                oldToPanel[logical] = count;
+                if (physical >= count) continue;
+                if (oldChildren[logical].Key is { } key
+                    && children.Get(physical) is FrameworkElement fe
+                    && Reconciler.GetElementTag(fe)?.Key != key)
+                    continue;
+                oldToPanel[logical] = physical++;
             }
-            while (logical < oldChildren.Length)
-                oldToPanel[logical++] = count;
 
             ReconcileKeyedCore(oldChildren, newChildren, children, reconciler, requestRerender, ambientKind, dirty, oldToPanel);
         }
@@ -453,6 +465,14 @@ internal static class ChildReconciler
 
     private static int OldPanelIndex(int oldIndex, int[]? oldToPanel) =>
         oldToPanel is null ? oldIndex : oldToPanel[oldIndex];
+
+    private static int InsertionPanelIndex(int oldIndex, int oldLen, int[]? oldToPanel, int childCount)
+    {
+        if (oldToPanel is null) return oldIndex < oldLen ? oldIndex : childCount;
+        for (int i = oldIndex; i < oldLen; i++)
+            if (oldToPanel[i] < childCount) return oldToPanel[i];
+        return childCount;
+    }
 
     private static void ReconcileKeyedCore(
         Element[] oldChildren,
@@ -615,13 +635,13 @@ internal static class ChildReconciler
         if (oldMidLen == 0)
         {
             // Only insertions
-            int panelStart = oldStart < oldLen ? OldPanelIndex(oldStart, oldToPanel) : childCount;
+            int panelIndex = InsertionPanelIndex(oldStart, oldLen, oldToPanel, childCount);
             for (int i = 0; i < newMidLen; i++)
             {
                 var ctrl = reconciler.Mount(newChildren[newStart + i], requestRerender);
                 if (ctrl is not null)
                 {
-                    children.Insert(panelStart + i, ctrl);
+                    children.Insert(panelIndex++, ctrl);
                     ApplyAmbientEnterIfActive(ctrl, newChildren[newStart + i], ambientKind);
                 }
             }
@@ -677,7 +697,7 @@ internal static class ChildReconciler
         // without a COM re-scan — and never patched by a not-yet-reached final
         // index (bug C1).
         int[] oldRelToPanel = intPool.Rent(oldMidLen);
-        bool hasUnrealizedChildren = oldToPanel is null && children.Count != oldChildren.Length;
+        int originalChildCount = children.Count;
         try
         {
             // A rented bool array can carry stale `true` markers; `matched`
@@ -741,19 +761,9 @@ internal static class ChildReconciler
                     oldRelToPanel[i] = -1;
                 }
                 else
-                    oldRelToPanel[i] = OldPanelIndex(oldStart + i, oldToPanel) - removed;
-            }
-            if (hasUnrealizedChildren)
-            {
-                // A transparent wrapper can mount nothing without being filtered out of the
-                // logical array. Preserve the existing tag-based lookup for that shape.
-                Array.Fill(oldRelToPanel, -1, 0, oldMidLen);
-                int searchEnd = children.Count - suffixLen;
-                for (int i = oldStart; i < searchEnd; i++)
                 {
-                    if (children.Get(i) is FrameworkElement fe && Reconciler.GetElementTag(fe) is Element tag
-                        && oldKeyMap.TryGetValue(GetKey(tag, i), out int oldRel) && matched[oldRel])
-                        oldRelToPanel[oldRel] = i;
+                    int panelIdx = OldPanelIndex(oldStart + i, oldToPanel);
+                    oldRelToPanel[i] = panelIdx < originalChildCount ? panelIdx - removed : -1;
                 }
             }
 
@@ -765,7 +775,7 @@ internal static class ChildReconciler
             // has not yet been rearranged into (bug C1) — with the model kept
             // exact across every Insert/Move (bug H1).
             int initialAnchor = oldToPanel is null ? children.Count - suffixLen
-                : suffixLen > 0 ? oldToPanel[oldStart + oldMidLen] - removed : children.Count;
+                : InsertionPanelIndex(oldStart + oldMidLen, oldChildren.Length, oldToPanel, originalChildCount) - removed;
             var sink = new RealKeyedMiddleSink(
                 oldChildren, newChildren, oldStart, newStart,
                 children, reconciler, requestRerender, ambientKind);

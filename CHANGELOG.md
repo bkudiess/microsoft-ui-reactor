@@ -384,6 +384,9 @@ Conventions for contributors:
   Fading controls retained from an earlier render no longer shift keyed prefix, suffix,
   removal or reorder updates onto another child's control. Live controls keep their
   identity and the final child order remains correct when the exits complete.
+  Null-mounted keyed Memo slots remain absent from the physical map and insertion
+  anchors, including when exits occur in the same panel or another panel sharing
+  the reconciler.
 - **ThemeRef resource overrides follow a `RequestedTheme` set outside the Reactor tree**
   (follow-up to #771). When an app themes a native ancestor of a `ReactorHostControl`
   or a `ReactorHost.ContentTarget`

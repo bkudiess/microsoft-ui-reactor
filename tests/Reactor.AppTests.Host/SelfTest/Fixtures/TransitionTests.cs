@@ -339,34 +339,90 @@ internal static class TransitionTests
     {
         public override async Task RunAsync()
         {
+            foreach (var (localExit, unrelatedExit) in new[] { (false, false), (false, true), (true, false), (true, true) })
+                await RunCase(localExit, unrelatedExit);
+        }
+
+        private async Task RunCase(bool localExit, bool unrelatedExit)
+        {
             using var reconciler = new Reconciler();
+            var scenario = $"KeyedEmptyMemo_Local{localExit}_Unrelated{unrelatedExit}";
             var empty = Memo("empty", () => Empty()).WithKey("empty");
             var initial = VStack(empty,
                 Border(TextBlock("before b")).WithKey("b"),
-                Border(TextBlock("before c")).WithKey("c"));
+                Border(TextBlock("before c")).WithKey("c"),
+                localExit ? Leaving("local-exit") : Empty());
+            var otherInitial = VStack(unrelatedExit ? Leaving("other-exit") : Empty());
+            var otherPanel = (StackPanel)reconciler.Mount(otherInitial, () => { })!;
             var panel = (StackPanel)reconciler.Mount(initial, () => { })!;
-            H.SetContent(panel);
+            var root = new StackPanel();
+            root.Children.Add(panel);
+            root.Children.Add(otherPanel);
+            H.SetContent(root);
             try
             {
                 await Harness.Render();
                 var b = panel.Children[0];
                 var c = panel.Children[1];
-                H.Check("KeyedEmptyMemo_NullMountPositiveControl", panel.Children.Count == 2);
-                var next = VStack(empty,
+                var leaving = localExit ? panel.Children[2] : null;
+                var otherLeaving = unrelatedExit ? otherPanel.Children[0] : null;
+                var current = VStack(empty,
+                    Border(TextBlock("before b")).WithKey("b"),
+                    Border(TextBlock("before c")).WithKey("c"));
+                reconciler.Update(initial, current, panel, () => { });
+                reconciler.Update(otherInitial, VStack(), otherPanel, () => { });
+                H.Check($"{scenario}_NullMountAndExitPositiveControl",
+                    panel.Children.Count == (localExit ? 3 : 2)
+                    && (leaving is null || reconciler.IsExiting(leaving))
+                    && (otherLeaving is null || reconciler.IsExiting(otherLeaving))
+                    && reconciler.HasExitingControls == (localExit || unrelatedExit));
+
+                var next = VStack(empty, Memo("inserted-empty", () => Empty()).WithKey("inserted-empty"),
                     Border(TextBlock("inserted")).WithKey("inserted"),
                     Border(TextBlock("after b")).WithKey("b"),
                     Border(TextBlock("after c")).WithKey("c"));
-                reconciler.Update(initial, next, panel, () => { });
-                H.Check("KeyedEmptyMemo_SuffixUpdated",
+                reconciler.Update(current, next, panel, () => { });
+                var inserted = panel.Children.OfType<Border>().Single(x => x.Child is TextBlock { Text: "inserted" });
+                H.Check($"{scenario}_SuffixUpdated",
                     b is Border { Child: TextBlock { Text: "after b" } }
                     && c is Border { Child: TextBlock { Text: "after c" } });
-                H.Check("KeyedEmptyMemo_SuffixIdentity",
-                    panel.Children.Count == 3 && panel.Children.Contains(b) && panel.Children.Contains(c));
+                H.Check($"{scenario}_SuffixIdentityAndOrder",
+                    panel.Children.Where(x => !reconciler.IsExiting(x)).SequenceEqual([inserted, b, c]));
+
+                var middleEmpty = Memo("middle-empty", () => Empty()).WithKey("middle-empty");
+                var trailingEmpty = Memo("trailing-empty", () => Empty()).WithKey("trailing-empty");
+                var reordered = VStack(
+                    Border(TextBlock("reordered c")).WithKey("c"), middleEmpty,
+                    empty, Border(TextBlock("reordered b")).WithKey("b"), trailingEmpty);
+                reconciler.Update(next, reordered, panel, () => { });
+                H.Check($"{scenario}_MiddleIdentityContentAndOrder",
+                    b is Border { Child: TextBlock { Text: "reordered b" } }
+                    && c is Border { Child: TextBlock { Text: "reordered c" } }
+                    && panel.Children.Where(x => !reconciler.IsExiting(x)).SequenceEqual([c, b]));
+
+                var suffix = VStack(
+                    Border(TextBlock("final c")).WithKey("c"), middleEmpty,
+                    Border(TextBlock("new before b")).WithKey("before-b"),
+                    empty, Border(TextBlock("final b")).WithKey("b"), trailingEmpty);
+                reconciler.Update(reordered, suffix, panel, () => { });
+                var beforeB = panel.Children.OfType<Border>().Single(x => x.Child is TextBlock { Text: "new before b" });
+                H.Check($"{scenario}_AbsentSuffixAnchor",
+                    b is Border { Child: TextBlock { Text: "final b" } }
+                    && c is Border { Child: TextBlock { Text: "final c" } }
+                    && panel.Children.Where(x => !reconciler.IsExiting(x)).SequenceEqual([c, beforeB, b]));
+
+                var final = VStack(empty, Border(TextBlock("only b")).WithKey("b"), trailingEmpty);
+                reconciler.Update(suffix, final, panel, () => { });
+                var completed = await Harness.WaitFor(() => !reconciler.HasExitingControls, maxPasses: 40, perPassMs: 50);
+                H.Check($"{scenario}_RemovalAndFinalOrder",
+                    completed && panel.Children.Count == 1 && ReferenceEquals(panel.Children[0], b)
+                    && b is Border { Child: TextBlock { Text: "only b" } } && otherPanel.Children.Count == 0);
             }
             finally
             {
                 H.SetContent(null);
                 reconciler.UnmountChild(panel);
+                reconciler.UnmountChild(otherPanel);
             }
         }
     }

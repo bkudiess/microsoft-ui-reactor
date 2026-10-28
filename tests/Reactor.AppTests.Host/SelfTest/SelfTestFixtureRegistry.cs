@@ -9,6 +9,8 @@ internal static class SelfTestFixtureRegistry
 {
     public static readonly string[] AllFixtures =
     [
+        "JumpList_NativeInterop",
+        "Packaged_JumpList",
         "SourceMapReadPath_Enabled",
         "HostDiag_WindowHostIsListedAndBoundariesAreTagged",
         "HostDiag_FlagOffLeavesBoundariesUntagged",
@@ -2021,6 +2023,11 @@ internal static class SelfTestFixtureRegistry
         "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts",
         "CmdBarFlyout_TargetKeepsItsOwnCallbacks",
 
+        // Flyout IsOpen driven by state (FlyoutIsOpenStateFixtures).
+        "FlyoutIsOpen_ButtonTargetFromState",
+        "FlyoutIsOpen_ButtonTargetOnMount",
+        "FlyoutIsOpen_NonButtonTargetFromState",
+
         // The harness's own click stimulus must fail loudly (HarnessGuardFixtures, #1063).
         "HarnessGuard_ClickButtonFailsLoudly",
 
@@ -2093,6 +2100,7 @@ internal static class SelfTestFixtureRegistry
         new(StringComparer.Ordinal)
         {
             ["Packaged_IdentityGuard"] = SelfTestTier.Packaged,
+            ["Packaged_JumpList"] = SelfTestTier.Packaged,
             ["Packaged_ResourceResolution"] = SelfTestTier.Packaged,
             ["Packaged_SettingsStoreRoundTrip"] = SelfTestTier.Packaged,
             ["Packaged_WindowIconFromResource"] = SelfTestTier.Packaged,
@@ -2178,6 +2186,8 @@ internal static class SelfTestFixtureRegistry
 
     public static SelfTestFixtureBase? Create(string name, Harness harness) => name switch
     {
+        "JumpList_NativeInterop" => new JumpListNativeInteropFixture(harness),
+        "Packaged_JumpList" => new PackagedJumpListFixture(harness),
         "HarnessGuard_ClickButtonFailsLoudly" => new HarnessGuardFixtures.ClickButtonFailsLoudly(harness),
         "ErrorBoundary_CatchesRenderError" => new ErrorBoundaryFixtures.CatchesRenderError(harness),
         "ErrorBoundary_Recovery" => new ErrorBoundaryFixtures.Recovery(harness),
@@ -4107,6 +4117,10 @@ internal static class SelfTestFixtureRegistry
         "CmdBarFlyout_UnmountDetachesFlyout" => new CommandBarFlyoutWiringFixtures.UnmountDetachesFlyout(harness),
         "CmdBarFlyout_KeyedReorderKeepsSiblingFlyouts" => new CommandBarFlyoutWiringFixtures.KeyedReorderKeepsSiblingFlyouts(harness),
         "CmdBarFlyout_TargetKeepsItsOwnCallbacks" => new CommandBarFlyoutWiringFixtures.TargetKeepsItsOwnCallbacks(harness),
+
+        "FlyoutIsOpen_ButtonTargetFromState" => new FlyoutIsOpenStateFixtures.ButtonTargetOpensFromState(harness),
+        "FlyoutIsOpen_ButtonTargetOnMount" => new FlyoutIsOpenStateFixtures.ButtonTargetOpensOnMount(harness),
+        "FlyoutIsOpen_NonButtonTargetFromState" => new FlyoutIsOpenStateFixtures.NonButtonTargetOpensFromState(harness),
 
         SkipVerdictPositiveControl.FixtureName => new SkipVerdictPositiveControl(harness),
         TierDeclarationConsistencyFixture.FixtureName => new TierDeclarationConsistencyFixture(harness),

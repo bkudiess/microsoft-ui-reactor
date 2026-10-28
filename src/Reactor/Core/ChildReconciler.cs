@@ -543,7 +543,7 @@ internal static class ChildReconciler
             int newIdx = newLen - 1 - suffixLen;
             var oldEl = oldChildren[oldIdx];
             var newEl = newChildren[newIdx];
-            int panelIdx = OldPanelIndex(oldIdx, oldToPanel);
+            int panelIdx = oldToPanel is null ? childCount - 1 - suffixLen : oldToPanel[oldIdx];
 
             // Early skip (#30): same fast-path as the prefix loop, applied from
             // the end of the list.
@@ -669,6 +669,7 @@ internal static class ChildReconciler
         // without a COM re-scan — and never patched by a not-yet-reached final
         // index (bug C1).
         int[] oldRelToPanel = intPool.Rent(oldMidLen);
+        bool hasUnrealizedChildren = oldToPanel is null && children.Count != oldChildren.Length;
         try
         {
             // A rented bool array can carry stale `true` markers; `matched`
@@ -734,6 +735,19 @@ internal static class ChildReconciler
                 else
                     oldRelToPanel[i] = OldPanelIndex(oldStart + i, oldToPanel) - removed;
             }
+            if (hasUnrealizedChildren)
+            {
+                // A transparent wrapper can mount nothing without being filtered out of the
+                // logical array. Preserve the existing tag-based lookup for that shape.
+                Array.Fill(oldRelToPanel, -1, 0, oldMidLen);
+                int searchEnd = children.Count - suffixLen;
+                for (int i = oldStart; i < searchEnd; i++)
+                {
+                    if (children.Get(i) is FrameworkElement fe && Reconciler.GetElementTag(fe) is Element tag
+                        && oldKeyMap.TryGetValue(GetKey(tag, i), out int oldRel) && matched[oldRel])
+                        oldRelToPanel[oldRel] = i;
+                }
+            }
 
             // Step 2: position + patch via the canonical right-to-left LIS walk.
             // `initialAnchor` is the start of the suffix (end of the middle);
@@ -742,9 +756,8 @@ internal static class ChildReconciler
             // position resolved from the model — never at a final index the panel
             // has not yet been rearranged into (bug C1) — with the model kept
             // exact across every Insert/Move (bug H1).
-            int initialAnchor = suffixLen > 0
-                ? OldPanelIndex(oldStart + oldMidLen, oldToPanel) - removed
-                : children.Count;
+            int initialAnchor = oldToPanel is null ? children.Count - suffixLen
+                : suffixLen > 0 ? oldToPanel[oldStart + oldMidLen] - removed : children.Count;
             var sink = new RealKeyedMiddleSink(
                 oldChildren, newChildren, oldStart, newStart,
                 children, reconciler, requestRerender, ambientKind);

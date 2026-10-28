@@ -395,6 +395,8 @@ Conventions for contributors:
   a container offscreen, unlinked from any item, without raising the recycle
   `ContainerContentChanging`, so the row's components stayed mounted: their effects never
   cleaned up, and a `ReactorDiagnostics.TrySetState` on one was accepted but never rendered.
+  The sweep also handles an unlinked container whose item was already cleared while its
+  template still holds a live view; its visuals remain available for the native delete transition.
 
 - **`REACTOR_A11Y_001` no longer flags text buttons with a non-literal string label**
   (spec 006 §6.3). `Button(S("Usage_Refresh"), onClick)` — a localized resource lookup,

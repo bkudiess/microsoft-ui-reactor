@@ -295,5 +295,79 @@ internal static class TransitionTests
                 reconciler.UnmountChild(panel);
             }
         }
+
+    }
+
+    private sealed class ExitCounter : Component<Action<Action>>
+    {
+        public override Element Render()
+        {
+            var (count, setCount) = UseState(0);
+            Props(() => setCount(count + 1));
+            return TextBlock($"exit-counter:{count}");
+        }
+    }
+
+    internal class KeyedDirtyChildDuringExitRenders(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            using var host = H.CreateHost();
+            Action? hide = null, bump = null;
+            var reused = Border(Component<ExitCounter, Action<Action>>(action => bump = action)).WithKey("counter");
+            host.Mount(ctx =>
+            {
+                var (show, setShow) = ctx.UseState(true);
+                hide = () => setShow(false);
+                return VStack(show ? Leaving("dirty-loading") : Empty(), reused);
+            });
+            await Harness.Render();
+            var label = H.FindText("exit-counter:0");
+            H.Check("KeyedDirtyExit_Mounted", label is not null && hide is not null && bump is not null);
+            hide!();
+            await Harness.Render();
+            H.Check("KeyedDirtyExit_ExitInFlight", host.Reconciler.HasExitingControls && H.FindText("dirty-loading") is not null);
+            bump!();
+            await Harness.Render();
+            H.Check("KeyedDirtyExit_SelfUpdateReached", label is not null && ReferenceEquals(label, H.FindText("exit-counter:1")));
+            var completed = await Harness.WaitFor(() => !host.Reconciler.HasExitingControls, maxPasses: 40, perPassMs: 50);
+            H.Check("KeyedDirtyExit_ControlKeptAfterExit", completed && ReferenceEquals(label, H.FindText("exit-counter:1")));
+        }
+    }
+
+    internal class KeyedEmptyMemoKeepsSuffixIdentity(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            using var reconciler = new Reconciler();
+            var empty = Memo("empty", () => Empty()).WithKey("empty");
+            var initial = VStack(empty,
+                Border(TextBlock("before b")).WithKey("b"),
+                Border(TextBlock("before c")).WithKey("c"));
+            var panel = (StackPanel)reconciler.Mount(initial, () => { })!;
+            H.SetContent(panel);
+            try
+            {
+                await Harness.Render();
+                var b = panel.Children[0];
+                var c = panel.Children[1];
+                H.Check("KeyedEmptyMemo_NullMountPositiveControl", panel.Children.Count == 2);
+                var next = VStack(empty,
+                    Border(TextBlock("inserted")).WithKey("inserted"),
+                    Border(TextBlock("after b")).WithKey("b"),
+                    Border(TextBlock("after c")).WithKey("c"));
+                reconciler.Update(initial, next, panel, () => { });
+                H.Check("KeyedEmptyMemo_SuffixUpdated",
+                    b is Border { Child: TextBlock { Text: "after b" } }
+                    && c is Border { Child: TextBlock { Text: "after c" } });
+                H.Check("KeyedEmptyMemo_SuffixIdentity",
+                    panel.Children.Count == 3 && panel.Children.Contains(b) && panel.Children.Contains(c));
+            }
+            finally
+            {
+                H.SetContent(null);
+                reconciler.UnmountChild(panel);
+            }
+        }
     }
 }

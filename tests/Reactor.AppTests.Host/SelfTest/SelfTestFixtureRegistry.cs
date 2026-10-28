@@ -777,6 +777,8 @@ internal static class SelfTestFixtureRegistry
         "Transition_KeyedSuffixDuringExitPatchesLiveSiblings",
         "Transition_KeyedMiddleDuringExitKeepsIdentity",
         "Transition_KeyedGridChildReplaceKeepsPlacement",
+        "Transition_KeyedEmptyMemoKeepsSuffixIdentity",
+        "Transition_KeyedDirtyChildDuringExitRenders",
         // Animation system — WithAnimationAsync
         "AsyncAnim_TaskCompletes",
         "AsyncAnim_SequentialAwait",
@@ -1055,6 +1057,7 @@ internal static class SelfTestFixtureRegistry
         "ConditionalChildSlot_UniformGridExitKeepsColumns",
         "TemplatedList_ChurnLeavesNoOrphanedRows",
         "TemplatedList_MoveKeepsRowComponent",
+        "TemplatedList_ClearedContainerContentUnmountsView",
         // Issue 343 — CommandBar/TeachingTip Content reconciliation
         "Issue343_CommandBarContentUpdates",
         "Issue343_TeachingTipContentUpdates",
@@ -2909,6 +2912,8 @@ internal static class SelfTestFixtureRegistry
         "Transition_KeyedSuffixDuringExitPatchesLiveSiblings" => new TransitionTests.KeyedSuffixDuringExitPatchesLiveSiblings(harness),
         "Transition_KeyedMiddleDuringExitKeepsIdentity" => new TransitionTests.KeyedMiddleDuringExitKeepsIdentity(harness),
         "Transition_KeyedGridChildReplaceKeepsPlacement" => new TransitionTests.KeyedGridChildReplaceKeepsPlacement(harness),
+        "Transition_KeyedEmptyMemoKeepsSuffixIdentity" => new TransitionTests.KeyedEmptyMemoKeepsSuffixIdentity(harness),
+        "Transition_KeyedDirtyChildDuringExitRenders" => new TransitionTests.KeyedDirtyChildDuringExitRenders(harness),
         // Animation system — WithAnimationAsync
         "AsyncAnim_TaskCompletes" => new AnimationAsyncTests.TaskCompletes(harness),
         "AsyncAnim_SequentialAwait" => new AnimationAsyncTests.SequentialAwait(harness),
@@ -3179,6 +3184,7 @@ internal static class SelfTestFixtureRegistry
         "ConditionalChildSlot_UniformGridExitKeepsColumns" => new ConditionalChildSlotFixtures.UniformGridExitKeepsColumns(harness),
         "TemplatedList_ChurnLeavesNoOrphanedRows" => new TemplatedListOrphanContainerFixtures.ChurnLeavesNoOrphanedRows(harness),
         "TemplatedList_MoveKeepsRowComponent" => new TemplatedListOrphanContainerFixtures.MoveKeepsRowComponent(harness),
+        "TemplatedList_ClearedContainerContentUnmountsView" => new TemplatedListOrphanContainerFixtures.ClearedContainerContentUnmountsView(harness),
         // Issue 343 — CommandBar/TeachingTip Content reconciliation
         "Issue343_CommandBarContentUpdates" => new Issue343Fixtures.CommandBarContentUpdates(harness),
         "Issue343_TeachingTipContentUpdates" => new Issue343Fixtures.TeachingTipContentUpdates(harness),
@@ -4122,5 +4128,3 @@ internal static class SelfTestFixtureRegistry
         _ => null,
     };
 }
-
-

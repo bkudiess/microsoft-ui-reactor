@@ -374,6 +374,11 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Keyed children keep their own controls while siblings exit** (spec 014, feature 2).
+  Fading controls retained from an earlier render no longer shift keyed prefix, suffix,
+  removal or reorder updates onto another child's control. Live controls keep their
+  identity and the final child order remains correct when the exits complete.
+
 - **A conditional child no longer shifts its unkeyed siblings** (issue #1423). The
   container factories drop `null` / `Empty()` arguments and flatten `Group(...)`, so
   toggling `cond ? X : Empty()` moved every later sibling down one index and the

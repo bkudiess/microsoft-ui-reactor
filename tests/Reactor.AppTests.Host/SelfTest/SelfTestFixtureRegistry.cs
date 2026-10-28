@@ -773,6 +773,10 @@ internal static class SelfTestFixtureRegistry
         "Transition_Asymmetric",
         "Transition_CurveResolutionPriority",
         "Transition_MountUnmountIntegration",
+        "Transition_KeyedRemovalDuringExitPatchesLiveSiblings",
+        "Transition_KeyedSuffixDuringExitPatchesLiveSiblings",
+        "Transition_KeyedMiddleDuringExitKeepsIdentity",
+        "Transition_KeyedGridChildReplaceKeepsPlacement",
         // Animation system — WithAnimationAsync
         "AsyncAnim_TaskCompletes",
         "AsyncAnim_SequentialAwait",
@@ -2901,6 +2905,10 @@ internal static class SelfTestFixtureRegistry
         "Transition_Asymmetric" => new TransitionTests.AsymmetricTransition(harness),
         "Transition_CurveResolutionPriority" => new TransitionTests.CurveResolutionPriority(harness),
         "Transition_MountUnmountIntegration" => new TransitionTests.MountUnmountIntegration(harness),
+        "Transition_KeyedRemovalDuringExitPatchesLiveSiblings" => new TransitionTests.KeyedRemovalDuringExitPatchesLiveSiblings(harness),
+        "Transition_KeyedSuffixDuringExitPatchesLiveSiblings" => new TransitionTests.KeyedSuffixDuringExitPatchesLiveSiblings(harness),
+        "Transition_KeyedMiddleDuringExitKeepsIdentity" => new TransitionTests.KeyedMiddleDuringExitKeepsIdentity(harness),
+        "Transition_KeyedGridChildReplaceKeepsPlacement" => new TransitionTests.KeyedGridChildReplaceKeepsPlacement(harness),
         // Animation system — WithAnimationAsync
         "AsyncAnim_TaskCompletes" => new AnimationAsyncTests.TaskCompletes(harness),
         "AsyncAnim_SequentialAwait" => new AnimationAsyncTests.SequentialAwait(harness),
@@ -4114,7 +4122,5 @@ internal static class SelfTestFixtureRegistry
         _ => null,
     };
 }
-
-
 
 

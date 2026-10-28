@@ -3,6 +3,7 @@ using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using WinUI = Microsoft.UI.Xaml.Controls;
 using static Microsoft.UI.Reactor.Factories;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
@@ -100,6 +101,198 @@ internal static class TransitionTests
                 var visual = ElementCompositionPreview.GetElementVisual(target);
                 // Enter transition starts opacity animation — visual exists and is valid
                 H.Check("Transition_Mount_VisualExists", visual is not null);
+            }
+        }
+    }
+
+    private static Element Leaving(string key) =>
+        Border(TextBlock(key)).WithKey(key)
+            .Transition(Animation.Transition.Fade + Animation.Transition.Slide(Edge.Bottom), Curve.Ease(600));
+
+    internal class KeyedRemovalDuringExitPatchesLiveSiblings(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var reconciler = new Reconciler();
+            var initial = VStack(24,
+                Leaving("loading"),
+                InfoBar("initial", "banner").WithKey("banner"),
+                Border(TextBlock("initial card")).WithKey("card")).Stagger(TimeSpan.FromMilliseconds(45));
+            var panel = (StackPanel)reconciler.Mount(initial, () => { })!;
+            H.SetContent(panel);
+            await Harness.Render();
+            var loading = panel.Children[0];
+            var banner = (InfoBar)panel.Children[1];
+            var card = (Border)panel.Children[2];
+            try
+            {
+                var next = VStack(24,
+                    InfoBar("second", "banner").WithKey("banner"),
+                    Border(TextBlock("second card")).WithKey("card")).Stagger(TimeSpan.FromMilliseconds(45));
+                reconciler.Update(initial, next, panel, () => { });
+                H.Check("KeyedExit_PrefixExitInFlight",
+                    panel.Children.Count == 3 && reconciler.IsExiting(loading));
+
+                var final = VStack(24,
+                    InfoBar("third", "banner").WithKey("banner"),
+                    Border(TextBlock("third card")).WithKey("card")).Stagger(TimeSpan.FromMilliseconds(45));
+                reconciler.Update(next, final, panel, () => { });
+                H.Check("KeyedExit_PrefixPatchesOwnControls",
+                    banner.Title == "third" && card.Child is TextBlock { Text: "third card" }
+                    && ReferenceEquals(panel.Children[1], banner) && ReferenceEquals(panel.Children[2], card));
+                H.Check("KeyedExit_PrefixLeavesFadingControlAlone",
+                    loading is Border { Child: TextBlock { Text: "loading" } } && reconciler.IsExiting(loading));
+                var onlyCard = VStack(24, Border(TextBlock("fourth card")).WithKey("card"));
+                reconciler.Update(final, onlyCard, panel, () => { });
+                H.Check("KeyedExit_PureRemovalTargetsLiveControl",
+                    panel.Children.Count == 2 && reconciler.IsExiting(loading)
+                    && ReferenceEquals(panel.Children[1], card) && card.Child is TextBlock { Text: "fourth card" });
+                var completed = await Harness.WaitFor(() => panel.Children.Count == 1, maxPasses: 40, perPassMs: 50);
+                H.Check("KeyedExit_PrefixFinalOrder",
+                    completed && ReferenceEquals(panel.Children[0], card));
+            }
+            finally
+            {
+                H.SetContent(null);
+                reconciler.UnmountChild(panel);
+            }
+        }
+    }
+
+    internal class KeyedSuffixDuringExitPatchesLiveSiblings(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var reconciler = new Reconciler();
+            var initial = VStack(
+                Border(TextBlock("card")).WithKey("card"),
+                InfoBar("initial", "banner").WithKey("banner"),
+                Leaving("trailing"));
+            var panel = (StackPanel)reconciler.Mount(initial, () => { })!;
+            H.SetContent(panel);
+            await Harness.Render();
+            var banner = (InfoBar)panel.Children[1];
+            var trailing = panel.Children[2];
+            try
+            {
+                var next = VStack(
+                    Border(TextBlock("card")).WithKey("card"),
+                    InfoBar("second", "banner").WithKey("banner"));
+                reconciler.Update(initial, next, panel, () => { });
+                H.Check("KeyedExit_SuffixExitInFlight", panel.Children.Count == 3 && reconciler.IsExiting(trailing));
+
+                var final = VStack(
+                    Border(TextBlock("inserted")).WithKey("inserted"),
+                    Border(TextBlock("new card")).WithKey("card"),
+                    InfoBar("third", "banner").WithKey("banner"));
+                reconciler.Update(next, final, panel, () => { });
+                H.Check("KeyedExit_SuffixPatchesOwnControl",
+                    banner.Title == "third" && ReferenceEquals(panel.Children[2], banner));
+                var completed = await Harness.WaitFor(() => panel.Children.Count == 3, maxPasses: 40, perPassMs: 50);
+                H.Check("KeyedExit_SuffixInsertionOrder",
+                    completed && panel.Children[0] is Border { Child: TextBlock { Text: "inserted" } }
+                    && panel.Children[1] is Border { Child: TextBlock { Text: "new card" } }
+                    && ReferenceEquals(panel.Children[2], banner));
+            }
+            finally
+            {
+                H.SetContent(null);
+                reconciler.UnmountChild(panel);
+            }
+        }
+    }
+
+    internal class KeyedMiddleDuringExitKeepsIdentity(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var reconciler = new Reconciler();
+            var initial = VStack(
+                Leaving("leading"),
+                InfoBar("banner", "initial").WithKey("banner"),
+                Border(TextBlock("card")).WithKey("card"),
+                InfoBar("tail", "initial").WithKey("tail"),
+                Leaving("trailing"));
+            var panel = (StackPanel)reconciler.Mount(initial, () => { })!;
+            H.SetContent(panel);
+            await Harness.Render();
+            var leading = panel.Children[0];
+            var banner = (InfoBar)panel.Children[1];
+            var tail = (InfoBar)panel.Children[3];
+            var trailing = panel.Children[4];
+            try
+            {
+                var next = VStack(
+                    InfoBar("banner", "second").WithKey("banner"),
+                    Border(TextBlock("card")).WithKey("card"),
+                    InfoBar("tail", "second").WithKey("tail"));
+                reconciler.Update(initial, next, panel, () => { });
+                H.Check("KeyedExit_MiddleExitsInFlight",
+                    panel.Children.Count == 5 && reconciler.IsExiting(leading) && reconciler.IsExiting(trailing));
+
+                var final = VStack(
+                    InfoBar("tail", "third").WithKey("tail"),
+                    Border(TextBlock("inserted")).WithKey("inserted"),
+                    InfoBar("banner", "third").WithKey("banner"));
+                reconciler.Update(next, final, panel, () => { });
+                H.Check("KeyedExit_MiddlePatchesSurvivors",
+                    banner.Message == "third" && tail.Message == "third"
+                    && !reconciler.IsExiting(banner) && !reconciler.IsExiting(tail));
+                var completed = await Harness.WaitFor(() => panel.Children.Count == 3, maxPasses: 40, perPassMs: 50);
+                H.Check("KeyedExit_MiddleFinalIdentityAndOrder",
+                    completed && ReferenceEquals(panel.Children[0], tail)
+                    && panel.Children[1] is Border { Child: TextBlock { Text: "inserted" } }
+                    && ReferenceEquals(panel.Children[2], banner));
+            }
+            finally
+            {
+                H.SetContent(null);
+                reconciler.UnmountChild(panel);
+            }
+        }
+    }
+
+    internal class KeyedGridChildReplaceKeepsPlacement(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            var reconciler = new Reconciler();
+            var initial = Grid([GridSize.Star(), GridSize.Star(), GridSize.Star()], [GridSize.Auto],
+                Leaving("shared").Grid(row: 0, column: 0),
+                InfoBar("stable", "initial").WithKey("stable").Grid(row: 0, column: 1));
+            var panel = (Grid)reconciler.Mount(initial, () => { })!;
+            H.SetContent(panel);
+            await Harness.Render();
+            var leaving = (Border)panel.Children[0];
+            var stable = (InfoBar)panel.Children[1];
+            try
+            {
+                var next = Grid([GridSize.Star(), GridSize.Star(), GridSize.Star()], [GridSize.Auto],
+                    InfoBar("replacement", "second").WithKey("shared").Grid(row: 0, column: 2),
+                    InfoBar("stable", "second").WithKey("stable").Grid(row: 0, column: 0));
+                reconciler.Update(initial, next, panel, () => { });
+                var replacement = panel.Children.OfType<InfoBar>().Single(bar => bar.Title == "replacement");
+                H.Check("KeyedExit_GridReplacementExitInFlight",
+                    panel.Children.Count == 3 && reconciler.IsExiting(leaving));
+                H.Check("KeyedExit_GridReplacementPlacement",
+                    WinUI.Grid.GetColumn(leaving) == 0 && WinUI.Grid.GetColumn(replacement) == 2 && WinUI.Grid.GetColumn(stable) == 0);
+
+                var final = Grid([GridSize.Star(), GridSize.Star(), GridSize.Star()], [GridSize.Auto],
+                    InfoBar("replacement", "third").WithKey("shared").Grid(row: 0, column: 1),
+                    InfoBar("stable", "third").WithKey("stable").Grid(row: 0, column: 2));
+                reconciler.Update(next, final, panel, () => { });
+                H.Check("KeyedExit_GridUpdatesLiveControls",
+                    replacement.Message == "third" && stable.Message == "third"
+                    && WinUI.Grid.GetColumn(replacement) == 1 && WinUI.Grid.GetColumn(stable) == 2);
+                var completed = await Harness.WaitFor(() => panel.Children.Count == 2, maxPasses: 40, perPassMs: 50);
+                H.Check("KeyedExit_GridFinalIdentityAndPlacement",
+                    completed && ReferenceEquals(panel.Children[0], replacement) && ReferenceEquals(panel.Children[1], stable)
+                    && WinUI.Grid.GetColumn(replacement) == 1 && WinUI.Grid.GetColumn(stable) == 2);
+            }
+            finally
+            {
+                H.SetContent(null);
+                reconciler.UnmountChild(panel);
             }
         }
     }

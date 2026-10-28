@@ -671,6 +671,8 @@ internal static class SelfTestFixtureRegistry
         "Item1Mount_PostMountAncestorToggleReResolves",
         "Item1Mount_SiblingSubtreesResolveIndependently",
         "Item1Mount_HostInheritedThemeResolvesAtMount",
+        "Item1Mount_HostInheritedThemeReviewRegressions",
+        "Item1Mount_HostInheritedThemePooledRows",
         "HotReload_ChildHookOrderRecovery",
         "HotReload_ComponentMigratesState",
         // DSL and extension tests
@@ -2783,6 +2785,8 @@ internal static class SelfTestFixtureRegistry
         "Item1Mount_PostMountAncestorToggleReResolves" => new ResourceOverrideMountThemeFixtures.PostMountAncestorToggleReResolves(harness),
         "Item1Mount_SiblingSubtreesResolveIndependently" => new ResourceOverrideMountThemeFixtures.SiblingSubtreesResolveIndependently(harness),
         "Item1Mount_HostInheritedThemeResolvesAtMount" => new ResourceOverrideMountThemeFixtures.HostInheritedThemeResolvesAtMount(harness),
+        "Item1Mount_HostInheritedThemeReviewRegressions" => new ResourceOverrideMountThemeFixtures.HostInheritedThemeReviewRegressions(harness),
+        "Item1Mount_HostInheritedThemePooledRows" => new ResourceOverrideMountThemeFixtures.HostInheritedThemePooledRows(harness),
         "HotReload_ChildHookOrderRecovery" => new HotReloadRecoveryFixtures.ChildRecoversAndSiblingStateSurvives(harness),
         "HotReload_ComponentMigratesState" => new HotReloadComponentMigrationFixtures.MigratesPreservingState(harness),
         // DSL and extension tests
@@ -4116,7 +4120,6 @@ internal static class SelfTestFixtureRegistry
         _ => null,
     };
 }
-
 
 
 

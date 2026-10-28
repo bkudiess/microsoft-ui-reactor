@@ -376,13 +376,15 @@ Conventions for contributors:
 
 - **ThemeRef resource overrides follow a `RequestedTheme` set outside the Reactor tree**
   (follow-up to #771). When an app themes a native ancestor of a `ReactorHostControl`
+  or a `ReactorHost.ContentTarget`
   (for example `RequestedTheme = Dark` on the window root under a Light app),
   `.Resources(r => r.Set(key, Theme.Ref(...)))` overrides resolved against the app
   theme: at mount the control is not yet parented, and no theme change follows to
-  re-resolve it. Rows an `ItemsView` realizes during layout had the same problem,
-  because they mount outside any root pass. The host now seeds the reconciler's
-  ambient theme from its inherited `RequestedTheme` for each root pass, layout-time
-  realization seeds it from the repeater, and a change to the host's inherited theme
+  re-resolve it. ListView, GridView, TreeView and ItemsView/ItemsRepeater rows realized
+  during layout had the same problem, because they mount outside any root pass.
+  Both hosts now supply a native theme anchor to the reconciler, including for custom
+  error fallbacks. Layout-time realization inherits its container's theme, pooled rows
+  refresh unchanged descendants when reused under a different theme, and a change to the host's inherited theme
   forces a resource refresh even through unchanged subtrees (including when a
   theme-event render runs before the host's Loaded event).
 

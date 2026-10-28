@@ -239,6 +239,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
         // already-constructed controls.
         _logger = logger ?? ReactorApp.AppLogger;
         _reconciler = new Reconciler(_logger);
+        _reconciler.ThemeAnchor = this;
         // Diagnostics mode needs call sites stamped from the very first render, so it
         // implies source mapping (REACTOR_SOURCEMAP=1 alone remains the narrower opt-in).
         if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported
@@ -625,16 +626,11 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     // Set when Loaded-time root creation failed (issue #1291); cleared by Mount.
     private Exception? _activationError;
 
-    // RequestedTheme inherited from outside the Reactor tree at the last root pass.
-    private ElementTheme _renderedHostTheme;
-
-    private ElementTheme InheritedRequestedTheme() => Reconciler.InheritedRequestedTheme(this);
-
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         // A tree rendered while detached resolved ThemeRef resource overrides without the
         // theme this control inherits from its new ancestors. Re-resolve every one of them.
-        if (_currentControl is not null && InheritedRequestedTheme() != _renderedHostTheme)
+        if (_currentControl is not null && _reconciler.HostThemeChanged)
         {
             _reconciler.RequestResourceRefresh();
             RequestRender();
@@ -1000,12 +996,6 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
 
             Element? newTree = null;
 
-            var hostTheme = InheritedRequestedTheme();
-            // ActualThemeChanged can render before Loaded. Refresh before consuming
-            // the pass signal so an unchanged tree cannot hide stale nested overrides.
-            if (_currentControl is not null && hostTheme != _renderedHostTheme)
-                _reconciler.RequestResourceRefresh();
-
             // Before the root render, so a resource notification that lands while the tree is
             // being built stays pending for the render it queues instead of being taken by this
             // pass, whose render may already have read the old resources.
@@ -1143,20 +1133,15 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
             UIElement? newControl;
             try
             {
-                _reconciler.HostAmbientTheme = hostTheme;
                 newControl = _reconciler.Reconcile(
                     _currentTree,
                     newTree,
                     _currentControl,
                     _requestRenderAction ??= RequestRender
                 );
-                _renderedHostTheme = hostTheme;
             }
             finally
             {
-                // The host theme applies to this root pass only; layout-time realization
-                // seeds its own from the repeater (Reconciler.EnterRealizationTheme).
-                _reconciler.HostAmbientTheme = ElementTheme.Default;
                 // The root owner names what this pass renders; a row an ItemsRepeater realizes
                 // or reuses later, during layout, has no known owner (see CurrentDiagnosticOwner).
                 _reconciler.DiagnosticRootOwner = null;

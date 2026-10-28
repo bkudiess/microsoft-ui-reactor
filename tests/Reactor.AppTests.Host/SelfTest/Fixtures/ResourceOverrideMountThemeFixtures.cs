@@ -410,6 +410,140 @@ internal static class ResourceOverrideMountThemeFixtures
         }
     }
 
+    internal sealed class HostInheritedThemeReviewRegressions(Harness h) : SelfTestFixtureBase(h)
+    {
+        private const string SrcKey = "HostReviewBrush";
+        private const string TargetKey = "HostReviewTarget";
+
+        private static Element View(string text) =>
+            Border(TextBlock(text).Resources(r => r.Set(TargetKey, Theme.Ref(SrcKey))));
+
+        private bool HasBrush(string text, SolidColorBrush brush) =>
+            ReferenceEquals(ResourceBrush(H.FindControl<TextBlock>(t => t.Text == text), TargetKey), brush);
+
+        public override async Task RunAsync()
+        {
+            var light = MakeBrush(0, 50, 120);
+            var dark = MakeBrush(120, 50, 0);
+            var (theme, expected, appBrush) = AncestorAgainstApp(light, dark);
+            var dict = InstallThemedDict(SrcKey, light, dark);
+            try
+            {
+                var target = new Border();
+                var parent = new Border { RequestedTheme = theme, Child = target };
+                H.SetContent(parent);
+                using (var host = new ReactorHost(H.Window) { ContentTarget = target })
+                {
+                    var tree = View("targetHost");
+                    host.Mount(_ => tree);
+                    H.Check("HostReview_ContentTargetInitialTheme", await Harness.WaitFor(() => HasBrush("targetHost", expected)));
+                    parent.RequestedTheme = ElementTheme.Default;
+                    H.Check("HostReview_ContentTargetDefault", await Harness.WaitFor(() => HasBrush("targetHost", appBrush)));
+                    parent.RequestedTheme = theme;
+                    host.RenderErrorHandler = _ => View("targetFallback");
+                    host.Mount(_ => throw new InvalidOperationException("root theme regression"));
+                    H.Check("HostReview_ContentTargetFallback", await Harness.WaitFor(() => HasBrush("targetFallback", expected)));
+                }
+
+                foreach (var failDuringReconcile in new[] { false, true })
+                {
+                    SolidColorBrush? mountedBrush = null;
+                    using var host = new ReactorHostControl
+                    {
+                        RenderErrorHandler = _ => View("controlFallback").OnMount(fe =>
+                            mountedBrush = ResourceBrush((fe as Border)?.Child as FrameworkElement, TargetKey))
+                    };
+                    var fallbackParent = new Border { RequestedTheme = theme, Child = host };
+                    H.SetContent(fallbackParent);
+                    if (failDuringReconcile)
+                        host.Mount(_ => TextBlock("never mounted").Set(_ => throw new InvalidOperationException("mount theme regression")));
+                    else
+                        host.Mount(_ => throw new InvalidOperationException("root theme regression"));
+                    await host.WaitForIdleAsync();
+                    H.Check($"HostReview_ControlFallbackAtMount_Reconcile={failDuringReconcile}", ReferenceEquals(mountedBrush, expected));
+                    fallbackParent.RequestedTheme = ElementTheme.Default;
+                    H.Check($"HostReview_ControlFallbackDefault_Reconcile={failDuringReconcile}", await Harness.WaitFor(() => HasBrush("controlFallback", appBrush)));
+                    H.SetContent(null);
+                }
+
+                var rows = new[] { "typedList", "typedGrid", "typedTree", "list", "grid" };
+                Element[] lists =
+                [
+                    ListView(new[] { rows[0] }, static s => s, (s, _) => View(s)).Height(150),
+                    GridView(new[] { rows[1] }, static s => s, (s, _) => View(s)).Height(150),
+                    TreeView(new[] { rows[2] }, keySelector: static s => s,
+                        childrenSelector: static _ => Array.Empty<string>(), viewBuilder: s => View(s)).Height(150),
+                    ListView(View(rows[3])).Height(150),
+                    GridView(View(rows[4])).Height(150),
+                ];
+                for (var i = 0; i < lists.Length; i++)
+                {
+                    using var host = new ReactorHostControl();
+                    H.SetContent(new Border { RequestedTheme = theme, Child = host });
+                    var list = lists[i];
+                    host.Mount(_ => list);
+                    H.Check($"HostReview_Container_{rows[i]}", await Harness.WaitFor(() => HasBrush(rows[i], expected)));
+                    H.SetContent(null);
+                }
+            }
+            finally
+            {
+                H.SetContent(null);
+                Application.Current.Resources.MergedDictionaries.Remove(dict);
+                ThemeRef.InvalidateResolutionCache();
+            }
+        }
+    }
+
+    internal sealed class HostInheritedThemePooledRows(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            const string source = "HostPoolBrush";
+            const string target = "HostPoolTarget";
+            var light = MakeBrush(0, 80, 120);
+            var dark = MakeBrush(120, 80, 0);
+            var (theme, expected, appBrush) = AncestorAgainstApp(light, dark);
+            var dict = InstallThemedDict(source, light, dark);
+            using var reconciler = new Reconciler();
+            var anchor = new Border { RequestedTheme = theme };
+            H.SetContent(anchor);
+            var tree = Border(TextBlock("pooled").Resources(r => r.Set(target, Theme.Ref(source))));
+            var factory = new ElementFactory<int>(new[] { 0, 1 }, (_, _) => tree, reconciler, static () => { }, null);
+            try
+            {
+                var first = factory.GetElement(new ElementFactoryGetArgs { Data = 0, Parent = anchor });
+                anchor.Child = first;
+                H.Check("HostPool_InitialBrush", ReferenceEquals(ResourceBrush((first as Border)?.Child as FrameworkElement, target), expected));
+                factory.RecycleElement(new ElementFactoryRecycleArgs { Element = first, Parent = anchor });
+                anchor.RequestedTheme = ElementTheme.Default;
+                var reused = factory.GetElement(new ElementFactoryGetArgs { Data = 0, Parent = anchor });
+                H.Check("HostPool_ActuallyReused", ReferenceEquals(first, reused));
+                H.Check("HostPool_RefreshNestedOverride", ReferenceEquals(ResourceBrush((reused as Border)?.Child as FrameworkElement, target), appBrush));
+
+                // Force an update that mounts a new descendant, rather than relying on
+                // the existing visual ancestry to repair the brush after parenting.
+                factory.RecycleElement(new ElementFactoryRecycleArgs { Element = reused, Parent = anchor });
+                anchor.RequestedTheme = theme;
+                factory.UpdateInPlace(new[] { 0, 1 }, (_, _) =>
+                    Border(Border(TextBlock("replacement").Resources(r => r.Set(target, Theme.Ref(source))))));
+                var replacement = factory.GetElement(new ElementFactoryGetArgs { Data = 1, Parent = anchor });
+                H.Check("HostPool_ReplacementUsesSameContainer", ReferenceEquals(first, replacement));
+                var descendant = ((replacement as Border)?.Child as Border)?.Child as FrameworkElement;
+                H.Check("HostPool_NewDescendantInheritsTheme", ReferenceEquals(ResourceBrush(descendant, target), expected));
+            }
+            finally
+            {
+                if (anchor.Child is { } child)
+                    reconciler.UnmountChild(child);
+                H.SetContent(null);
+                Application.Current.Resources.MergedDictionaries.Remove(dict);
+                ThemeRef.InvalidateResolutionCache();
+            }
+            await Harness.Render();
+        }
+    }
+
     // ════════════════════════════════════════════════════════════════════
     //  Sibling isolation — the ambient save/restore must not leak across peers
     // ════════════════════════════════════════════════════════════════════

@@ -394,9 +394,10 @@ Conventions for contributors:
 ### Fixed
 
 - **`AutoSuggestBox` clears stale choices when `Suggestions` becomes empty**
-  (spec 047 §6.1). The suggestions binding now writes an empty array to the
-  native `ItemsSource` instead of skipping the update, preserving the existing
-  control and allowing later suggestions to repopulate it.
+  (spec 047 §6.1). The suggestions binding now clears the native `ItemsSource`
+  instead of skipping empty updates, preserving the existing control and allowing
+  later suggestions to repopulate it. Empty suggestions leave `ItemsSource` null,
+  so direct `Items.Add(...)` setters continue to work on mount.
 
 - **Wrapped third-party controls now get source-map call sites** (spec 010). A factory
   emitted by `[GenerateReactorWrapper]` (`SettingsCard(...)`, `RadialGauge(...)`) is

@@ -3876,7 +3876,7 @@ public partial record AutoSuggestBoxElement(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AutoSuggestBoxElement, WinUI.AutoSuggestBox> d)
         => d.OneWay(
                 get:         static e => e.Suggestions,
-                set:         static (c, v) => c.ItemsSource = v)
+                set:         static (c, v) => c.ItemsSource = v.Length > 0 ? v : null)
             .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.AutoSuggestBoxEventPayload, string,
                 global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxTextChangedEventArgs>>(
                 get:         static e => e.Text,

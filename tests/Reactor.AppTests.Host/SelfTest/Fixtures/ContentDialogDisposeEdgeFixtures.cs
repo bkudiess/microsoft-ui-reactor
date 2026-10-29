@@ -49,6 +49,7 @@ internal static class ContentDialogDisposeEdgeFixtures
         {
             using var host = new ReactorHostControl();
             Action<bool>? setOpen = null;
+            var opened = false;
             var closed = 0;
             WinUI.ContentDialogClosingDeferral? deferral = null;
             var completed = false;
@@ -60,6 +61,7 @@ internal static class ContentDialogDisposeEdgeFixtures
                 return ContentDialog("Disposed while closing", TextBlock("content"), "OK") with
                 {
                     IsOpen = open,
+                    OnOpened = () => opened = true,
                     OnClosed = _ => closed++,
                 };
             });
@@ -68,8 +70,12 @@ internal static class ContentDialogDisposeEdgeFixtures
             dialog.Closing += (_, args) => deferral ??= args.GetDeferral();
             try
             {
+                if (!await Harness.WaitFor(() => opened))
+                    throw new InvalidOperationException("Dialog did not finish opening before the closing probe.");
                 setOpen!(false);
-                H.Check("DialogDispose_ClosingDeferralReached", await Harness.WaitFor(() => deferral is not null));
+                var closing = await Harness.WaitFor(() => deferral is not null);
+                H.Check("DialogDispose_ClosingDeferralReached", closing);
+                if (!closing) throw new InvalidOperationException("Native closing deferral was not reached.");
                 host.Dispose();
                 H.Check("DialogDispose_ClosingDetachesImmediately", dialog.Content is null);
                 deferral!.Complete();

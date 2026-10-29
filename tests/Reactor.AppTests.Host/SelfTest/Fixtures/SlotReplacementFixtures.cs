@@ -733,6 +733,61 @@ internal static class SlotReplacementFixtures
         }
     }
 
+    internal sealed class UnmountCallbackUpdates(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            await RunScenario(clearCallback: true);
+            await RunScenario(clearCallback: false);
+        }
+
+        private async Task RunScenario(bool clearCallback)
+        {
+            var name = clearCallback ? "UnmountUpdate_Clear" : "UnmountUpdate_Replace";
+            int callsA = 0, callsB = 0;
+            Action<FrameworkElement> callbackA = _ => callsA++;
+            Action<FrameworkElement> callbackB = _ => callsB++;
+            int removeAt = clearCallback ? 3 : 2;
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (step, setStep) = ctx.UseState(0);
+                Element? child = null;
+                if (step < removeAt)
+                {
+                    child = TextBlock($"{name} {step}").Margin(1);
+                    if (step == 0) child = child.OnUnmount(callbackA);
+                    else if (step == 1) child = child.OnUnmount(callbackB);
+                }
+                return VStack(
+                    Button(name, () => setStep(step + 1)),
+                    child);
+            });
+
+            H.Check($"{name}_Mounted", await Harness.WaitFor(() => H.FindText($"{name} 0") is not null));
+            var original = H.FindText($"{name} 0");
+            for (int step = 1; step < removeAt; step++)
+            {
+                H.ClickButton(name);
+                H.Check($"{name}_Step{step}_Updated",
+                    await Harness.WaitFor(() => H.FindText($"{name} {step}") is not null));
+                H.Check($"{name}_Step{step}_SameControl",
+                    original is not null && ReferenceEquals(original, H.FindText($"{name} {step}")));
+                H.Check($"{name}_Step{step}_NoPrematureCallbacks", callsA == 0 && callsB == 0);
+            }
+
+            H.ClickButton(name);
+            H.Check($"{name}_Removed", await Harness.WaitFor(() => H.FindText($"{name} {removeAt - 1}") is null));
+            await Harness.Render();
+            H.Check($"{name}_ExpectedCallbacks", callsA == 0 && callsB == (clearCallback ? 0 : 1),
+                $"a={callsA}, b={callsB}");
+            host.Mount(_ => Empty());
+            await Harness.Render();
+            H.Check($"{name}_NoRepeatedCallbacks", callsA == 0 && callsB == (clearCallback ? 0 : 1),
+                $"a={callsA}, b={callsB}");
+        }
+    }
+
     /// <summary>
     /// A custom control that hosts one child element, taken through every way the child can
     /// leave: an update that builds a new control (a <c>ValidationVisualizer</c> remounts on

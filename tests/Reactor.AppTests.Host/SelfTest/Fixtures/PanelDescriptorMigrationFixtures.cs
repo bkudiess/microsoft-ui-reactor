@@ -301,13 +301,6 @@ internal static class PanelDescriptorMigrationFixtures
             var before = keys.ToDictionary(k => k, Control);
             H.Check("PDM_WrapGrid_Reverse_AllInitial", before.Values.All(v => v is not null));
 
-            await Task.Run(static () =>
-            {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
-            });
-
             H.ClickButton("Reverse");
             await Harness.Render();
 

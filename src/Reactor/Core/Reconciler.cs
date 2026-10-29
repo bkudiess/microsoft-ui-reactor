@@ -6196,15 +6196,14 @@ public sealed partial class Reconciler : IDisposable
 
         // OnUnmountAction — captured here (authoritative modifier set) so it fires
         // reliably at teardown regardless of the tagged element's identity. Keep the
-        // latest action across re-renders; clear unconditionally when absent so a
-        // pooled control reused for a no-OnUnmount element can't fire a stale action
-        // (pool reuse remounts with oldM == null, so this can't be gated on oldM).
+        // latest action across re-renders; clear only a removed registration.
+        // Unmount and pool return already clear the slot before a later mount.
         if (m.OnUnmountAction is not null)
         {
             GetOrCreateReactorState(fe).UnmountAction = m.OnUnmountAction;
             _boundaryMountJournal?.Add(fe);
         }
-        else if (TryGetReactorState(fe, out var unmountState))
+        else if (oldM?.OnUnmountAction is not null && TryGetReactorState(fe, out var unmountState))
             unmountState.UnmountAction = null;
 
         // Element ref — populate on mount/update so imperative APIs (FocusManager.Focus)

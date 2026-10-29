@@ -398,6 +398,10 @@ Conventions for contributors:
   keyed by a managed wrapper, so a still-mounted control keeps its teardown callback
   when WinRT projects a new wrapper before removal.
 
+- **Keyed-list diagnostics retain their native control identity** (spec 047 §3).
+  Duplicate/null-key warning counters now share one ledger across managed wrappers
+  for the same control instead of emitting a second entry after wrapper collection.
+
 - **`AutoSuggestBox` clears stale choices when `Suggestions` becomes empty**
   (spec 047 §6.1). The suggestions binding now clears the native `ItemsSource`
   instead of skipping empty updates, preserving the existing control and allowing

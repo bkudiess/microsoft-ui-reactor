@@ -158,6 +158,13 @@ internal class KeyedListDiagnostics_RowsKeysAndWarnings(Harness h) : SelfTestFix
             H.CreateHost().Mount(new ItemsViewKeysProbe());
             await Harness.Render();
             await Harness.Render(100);
+            // The native ItemsView remains mounted while its managed wrapper may be collected.
+            await Task.Run(static () =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            });
             H.ClickButton("iv-bump");
             await Harness.Render();
             await Harness.Render(100);
@@ -165,10 +172,12 @@ internal class KeyedListDiagnostics_RowsKeysAndWarnings(Harness h) : SelfTestFix
             Console.WriteLine("# items view: " + string.Join("; ", ivWarnings.Select(w => Describe(w) + $" x{w.Count}")));
             var ivDup = ivWarnings.Where(w => w.Kind == KeyedListDiagnosticKind.DuplicateKey).ToList();
             H.Check("KeyedListDiagnostics_ItemsViewDuplicateKeys_OneEntryAcrossMountAndUpdate",
-                ivDup.Count == 1 && ivDup[0].Count == 2 && ivDup[0].SampleKeys.SequenceEqual(["dup"]));
+                ivDup.Count == 1 && ivDup[0].Count == 2 && ivDup[0].SampleKeys.SequenceEqual(["dup"]),
+                string.Join("; ", ivWarnings.Select(w => Describe(w) + $" x{w.Count}")));
             H.Check("KeyedListDiagnostics_ItemsViewNullKeyReported",
                 ivWarnings.Count(w => w.Kind == KeyedListDiagnosticKind.NullKey) == 1
-                && ivWarnings.First(w => w.Kind == KeyedListDiagnosticKind.NullKey).Count == 2);
+                && ivWarnings.First(w => w.Kind == KeyedListDiagnosticKind.NullKey).Count == 2,
+                string.Join("; ", ivWarnings.Select(w => Describe(w) + $" x{w.Count}")));
             H.SetContent(null);
 
             // ── FlipView pages stay positional ───────────────────────────

@@ -72,12 +72,17 @@ public class ModifierUnsetClearValueTests
     /// anything that <em>is</em> a DP must go through <c>ClearValue</c>.
     /// <para>
     /// Scoped to every method in <see cref="ScannedMethods"/>, not to <c>ApplyModifiers</c> alone —
-    /// the sole entry below comes from <c>ApplyAccessibilityModifiers</c>.
+    /// the entries cover callback bookkeeping and deferred accessibility resolution.
     /// </para>
     /// </summary>
     private static readonly Dictionary<string, string> UnsetArmAssignmentExceptions =
         new(StringComparer.Ordinal)
         {
+            ["UnmountAction"] =
+                "ReactorState.UnmountAction is a managed callback field, not a dependency " +
+                "property. Removing OnUnmount must null the registered callback so teardown " +
+                "does not invoke it; there is no styled value or DP to restore. The native " +
+                "SlotReplace_UnmountCallbackUpdates fixture mutation-checks this clear.",
             ["PendingLabeledBy"] =
                 "ReactorState.PendingLabeledBy is a plain field, not a dependency property. The " +
                 "LabeledBy unset arm nulls it to retire a still-parked deferred resolution so a " +

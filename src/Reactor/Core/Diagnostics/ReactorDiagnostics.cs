@@ -106,10 +106,8 @@ public static partial class ReactorDiagnostics
         public readonly long DedupKey = dedupKey;
     }
 
-    // (control instance) → set of (kind | sample-set hash) keys already
-    // logged. ConditionalWeakTable so a control that's torn down doesn't
-    // leak its dedup state; a fresh control instance reusing the same type
-    // gets a fresh ledger.
+    // Native controls use their attached ReactorState as the weak key so a replacement
+    // managed wrapper keeps the same ledger. Other callers retain object identity.
     private static readonly ConditionalWeakTable<object, ConcurrentDictionary<long, int>> _seenPerControl = new();
 
     // For diff sites that don't have a control instance (unit tests,
@@ -192,9 +190,7 @@ public static partial class ReactorDiagnostics
         {
             // Dedup ledger lookup — per-control for live instances, global
             // for context-only callers.
-            ConcurrentDictionary<long, int> ledger = controlInstance is not null
-                ? _seenPerControl.GetValue(controlInstance, static _ => new ConcurrentDictionary<long, int>())
-                : _seenContextual;
+            var ledger = LedgerFor(controlInstance);
 
             if (ledger.TryGetValue(dedupKey, out var existingCount))
             {
@@ -265,11 +261,18 @@ public static partial class ReactorDiagnostics
         var label = controlContext ?? "<unknown>";
         long dedupKey = ComputeDedupKey(kind, sampleKeys, label);
 
-        ConcurrentDictionary<long, int> ledger = controlInstance is not null
-            ? _seenPerControl.GetValue(controlInstance, static _ => new ConcurrentDictionary<long, int>())
-            : _seenContextual;
+        var ledger = LedgerFor(controlInstance);
 
         return !ledger.ContainsKey(dedupKey);
+    }
+
+    private static ConcurrentDictionary<long, int> LedgerFor(object? controlInstance)
+    {
+        if (controlInstance is null) return _seenContextual;
+        var identity = controlInstance is global::Microsoft.UI.Xaml.FrameworkElement control
+            ? Reconciler.GetOrCreateReactorState(control)
+            : controlInstance;
+        return _seenPerControl.GetValue(identity, static _ => new ConcurrentDictionary<long, int>());
     }
 
     // Dedup key = kind ⊕ samples-hash ⊕ context-label hash. Folding the

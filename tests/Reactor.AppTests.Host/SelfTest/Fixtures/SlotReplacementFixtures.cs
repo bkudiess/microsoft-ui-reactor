@@ -739,6 +739,7 @@ internal static class SlotReplacementFixtures
         {
             await RunScenario(clearCallback: true);
             await RunScenario(clearCallback: false);
+            await RunFlyoutScenario();
         }
 
         private async Task RunScenario(bool clearCallback)
@@ -785,6 +786,45 @@ internal static class SlotReplacementFixtures
             await Harness.Render();
             H.Check($"{name}_NoRepeatedCallbacks", callsA == 0 && callsB == (clearCallback ? 0 : 1),
                 $"a={callsA}, b={callsB}");
+        }
+
+        private async Task RunFlyoutScenario()
+        {
+            const string name = "UnmountUpdate_FlyoutTarget";
+            int calls = 0;
+            FrameworkElement? unmounted = null;
+            Action<FrameworkElement> callback = control =>
+            {
+                calls++;
+                unmounted = control;
+            };
+            var host = H.CreateHost();
+            host.Mount(ctx =>
+            {
+                var (step, setStep) = ctx.UseState(0);
+                return VStack(
+                    Button(name, () => setStep(step + 1)),
+                    step < 2
+                        ? Flyout(TextBlock($"{name} {step}").OnUnmount(callback), TextBlock("content")).Margin(2)
+                        : null);
+            });
+
+            H.Check($"{name}_Mounted", await Harness.WaitFor(() => H.FindText($"{name} 0") is not null));
+            var original = H.FindText($"{name} 0");
+            H.Check($"{name}_WrapperModifiersApplied", original?.Margin == new Thickness(2));
+            H.ClickButton(name);
+            H.Check($"{name}_Updated", await Harness.WaitFor(() => H.FindText($"{name} 1") is not null));
+            H.Check($"{name}_SameControl", original is not null && ReferenceEquals(original, H.FindText($"{name} 1")));
+            H.Check($"{name}_NoPrematureCallback", calls == 0, $"calls={calls}");
+
+            H.ClickButton(name);
+            H.Check($"{name}_Removed", await Harness.WaitFor(() => H.FindText($"{name} 1") is null));
+            await Harness.Render();
+            H.Check($"{name}_UnmountedOnce", calls == 1 && original is not null && ReferenceEquals(original, unmounted),
+                $"calls={calls}");
+            host.Mount(_ => Empty());
+            await Harness.Render();
+            H.Check($"{name}_NoRepeatedCallback", calls == 1, $"calls={calls}");
         }
     }
 

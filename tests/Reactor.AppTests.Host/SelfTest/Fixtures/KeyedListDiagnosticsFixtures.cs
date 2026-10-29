@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Core.Diagnostics;
 using Microsoft.UI.Reactor.Core.V1Protocol;
@@ -158,13 +159,19 @@ internal class KeyedListDiagnostics_RowsKeysAndWarnings(Harness h) : SelfTestFix
             H.CreateHost().Mount(new ItemsViewKeysProbe());
             await Harness.Render();
             await Harness.Render(100);
-            // The native ItemsView remains mounted while its managed wrapper may be collected.
+            // WinRT WeakReference can reproject a live native object, so track managed identity
+            // with a weak table instead. Capture outside this async frame to avoid rooting it.
+            var ivWrappers = CaptureItemsViewWrapper(H);
             await Task.Run(static () =>
             {
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();
             });
+            var ivAfterGc = H.FindControl<WinUI.ItemsView>(_ => true);
+            H.Check("KeyedListDiagnostics_ItemsViewWrapperCollected",
+                ivAfterGc is not null && !ivWrappers.TryGetValue(ivAfterGc, out _),
+                "the native ItemsView must remain mounted with a fresh managed wrapper");
             H.ClickButton("iv-bump");
             await Harness.Render();
             await Harness.Render(100);
@@ -294,6 +301,16 @@ internal class KeyedListDiagnostics_RowsKeysAndWarnings(Harness h) : SelfTestFix
             ReactorSourcePublisher.IsEnabled = previous;
             ReactorDiagnostics.ClearRecentKeyedListWarnings();
         }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ConditionalWeakTable<WinUI.ItemsView, object> CaptureItemsViewWrapper(Harness h)
+    {
+        var control = h.FindControl<WinUI.ItemsView>(_ => true)
+            ?? throw new InvalidOperationException("Expected ItemsView in visual tree.");
+        var wrappers = new ConditionalWeakTable<WinUI.ItemsView, object>();
+        wrappers.Add(control, new object());
+        return wrappers;
     }
 
     private async Task CheckForwardedFlipPage(bool publishPass)

@@ -257,6 +257,22 @@ Conventions for contributors:
   `Reconcile` (neither reached the bad path), and the Extending Reactor Controls
   guide shows a `RegisterType` host reconciling its child.
 
+- **Connected animations between navigation pages (issue #1414).**
+  `NavigationTransition.Connected(key)` was a stub that played the Entrance page
+  transition; it now animates the element marked `.ConnectedAnimation(key)` on the
+  outgoing page into the matching element on the incoming page. The new
+  `NavigateOptions.ConnectedAnimationKey` pairs that shared element with any page
+  transition, such as DrillIn or Fade. `NavigationHost` waits briefly for the
+  destination's layout (including cold `ScrollView` content and elements an effect
+  creates), keeps both pages until both animations finish, and animates back on
+  `GoBack()` / `GoForward()`. Cached pages and the active pages of nested hosts take
+  part. A missing, duplicate or unmeasurable target falls back to the selected page
+  transition, and with Windows animations off the navigation completes immediately.
+  Each `NavigationHost` now owns its pages' lifecycle callbacks and guards, so a page
+  that hosts an inner navigation stack no longer runs that stack's callbacks and guards
+  as its own, and a page whose navigation is interrupted still receives
+  `onNavigatedFrom`. See the [navigation guide](docs/guide/navigation.md).
+
 ### Changed
 
 - **Markdown `LinkBuilder` now receives a `MarkdownLink`** (#1436). Breaking: the
@@ -396,7 +412,8 @@ Conventions for contributors:
 - **Unmount callbacks survive managed-wrapper collection** (spec 047 §3).
   `.OnUnmount(...)` now lives in native attached state rather than a weak table
   keyed by a managed wrapper, so a still-mounted control keeps its teardown callback
-  when WinRT projects a new wrapper before removal.
+  when WinRT projects a new wrapper before removal. Callback-free wrapper modifiers
+  also preserve the inner target's callback when both share a control, as with `Flyout`.
 
 - **Keyed-list diagnostics retain their native control identity** (spec 047 §3).
   Duplicate/null-key warning counters now share one ledger across managed wrappers
@@ -407,6 +424,14 @@ Conventions for contributors:
   instead of skipping empty updates, preserving the existing control and allowing
   later suggestions to repopulate it. Empty suggestions leave `ItemsSource` null,
   so direct `Items.Add(...)` setters continue to work on mount.
+
+- **Keyed children keep their own controls while siblings exit** (spec 014, feature 2).
+  Fading controls retained from an earlier render no longer shift keyed prefix, suffix,
+  removal or reorder updates onto another child's control. Live controls keep their
+  identity and the final child order remains correct when the exits complete.
+  Null-mounted Memo slots remain absent from the physical map and insertion
+  anchors, including when exits occur in the same panel or another panel sharing
+  the reconciler.
 
 - **Wrapped third-party controls now get source-map call sites** (spec 010). A factory
   emitted by `[GenerateReactorWrapper]` (`SettingsCard(...)`, `RadialGauge(...)`) is
@@ -522,6 +547,8 @@ Conventions for contributors:
   a container offscreen, unlinked from any item, without raising the recycle
   `ContainerContentChanging`, so the row's components stayed mounted: their effects never
   cleaned up, and a `ReactorDiagnostics.TrySetState` on one was accepted but never rendered.
+  The sweep also handles an unlinked container whose item was already cleared while its
+  template still holds a live view; its visuals remain available for the native delete transition.
 
 - **`REACTOR_A11Y_001` no longer flags text buttons with a non-literal string label**
   (spec 006 §6.3). `Button(S("Usage_Refresh"), onClick)` — a localized resource lookup,

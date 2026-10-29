@@ -340,7 +340,75 @@ internal static class TransitionTests
         public override async Task RunAsync()
         {
             foreach (var (localExit, unrelatedExit) in new[] { (false, false), (false, true), (true, false), (true, true) })
+            {
                 await RunCase(localExit, unrelatedExit);
+                await RunMixedKeyCase(localExit, unrelatedExit);
+            }
+        }
+
+        private async Task RunMixedKeyCase(bool localExit, bool unrelatedExit)
+        {
+            using var reconciler = new Reconciler();
+            var scenario = $"MixedKeyEmptyMemo_Local{localExit}_Unrelated{unrelatedExit}";
+            var empty = Memo("empty", () => Empty());
+            var initial = VStack(
+                Border(TextBlock("before a")).WithKey("a"), empty,
+                Border(TextBlock("before b")).WithKey("b"),
+                localExit ? Leaving("local-exit") : Empty());
+            var otherInitial = VStack(unrelatedExit ? Leaving("other-exit") : Empty());
+            var panel = (StackPanel)reconciler.Mount(initial, () => { })!;
+            var otherPanel = (StackPanel)reconciler.Mount(otherInitial, () => { })!;
+            var root = new StackPanel();
+            root.Children.Add(panel);
+            root.Children.Add(otherPanel);
+            H.SetContent(root);
+            try
+            {
+                await Harness.Render();
+                var a = panel.Children[0];
+                var b = panel.Children[1];
+                var leaving = localExit ? panel.Children[2] : null;
+                var otherLeaving = unrelatedExit ? otherPanel.Children[0] : null;
+                var current = VStack(
+                    Border(TextBlock("before a")).WithKey("a"), empty,
+                    Border(TextBlock("before b")).WithKey("b"));
+                reconciler.Update(initial, current, panel, () => { });
+                reconciler.Update(otherInitial, VStack(), otherPanel, () => { });
+                H.Check($"{scenario}_NullMountAndExitPositiveControl",
+                    empty.Key is null && panel.Children.Count == (localExit ? 3 : 2)
+                    && (leaving is null || reconciler.IsExiting(leaving))
+                    && (otherLeaving is null || reconciler.IsExiting(otherLeaving))
+                    && reconciler.HasExitingControls == (localExit || unrelatedExit));
+
+                var reordered = VStack(
+                    Border(TextBlock("after b")).WithKey("b"), empty,
+                    Border(TextBlock("after a")).WithKey("a"));
+                reconciler.Update(current, reordered, panel, () => { });
+                H.Check($"{scenario}_ReorderKeepsIdentityAndContent",
+                    panel.Children.Where(x => !reconciler.IsExiting(x)).SequenceEqual([b, a])
+                    && a is Border { Child: TextBlock { Text: "after a" } }
+                    && b is Border { Child: TextBlock { Text: "after b" } });
+
+                var final = VStack(
+                    Border(TextBlock("final b")).WithKey("b"), empty,
+                    Border(TextBlock("inserted")).WithKey("inserted"),
+                    Border(TextBlock("final a")).WithKey("a"));
+                reconciler.Update(reordered, final, panel, () => { });
+                var completed = await Harness.WaitFor(() => !reconciler.HasExitingControls, maxPasses: 40, perPassMs: 50);
+                H.Check($"{scenario}_InsertionAndFinalOrder",
+                    completed && panel.Children.Count == 3 && ReferenceEquals(panel.Children[0], b)
+                    && panel.Children[1] is Border { Child: TextBlock { Text: "inserted" } }
+                    && ReferenceEquals(panel.Children[2], a)
+                    && a is Border { Child: TextBlock { Text: "final a" } }
+                    && b is Border { Child: TextBlock { Text: "final b" } }
+                    && otherPanel.Children.Count == 0);
+            }
+            finally
+            {
+                H.SetContent(null);
+                reconciler.UnmountChild(panel);
+                reconciler.UnmountChild(otherPanel);
+            }
         }
 
         private async Task RunCase(bool localExit, bool unrelatedExit)

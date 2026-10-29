@@ -381,14 +381,7 @@ internal static class ChildReconciler
                         || Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
                     && (existingControl ??= children.Get(i)) is FrameworkElement fe)
                 {
-                    if (newEl.HasCallbacks)
-                        Reconciler.SetElementTag(fe, newEl);
-                    else if (Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
-                        reconciler.RefreshCallSiteTagOnSkip(fe, newEl);
-                    if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
-                        && Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
-                        reconciler.PublishSourceOnSkip(fe, newEl);
-                    Reconciler.RefreshGestureDragStateOnSkip(fe, oldEl.Modifiers, newEl.Modifiers);
+                    reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
                 }
                 return false;
             }
@@ -438,8 +431,13 @@ internal static class ChildReconciler
         // exits. Keyed controls carry their owner's key, so an absent slot must not consume
         // the next sibling. Use count as the absent sentinel, outside the physical indices.
         var oldToPanel = ArrayPool<int>.Shared.Rent(oldChildren.Length);
+        var siblingKeys = RentKeyIndexDict(oldChildren.Length);
         try
         {
+            for (int i = 0; i < oldChildren.Length; i++)
+                if (oldChildren[i].Key is { } siblingKey)
+                    siblingKeys[siblingKey] = i;
+
             int count = children.Count;
             int physical = 0;
             for (int logical = 0; logical < oldChildren.Length; logical++)
@@ -448,10 +446,16 @@ internal static class ChildReconciler
                     physical++;
                 oldToPanel[logical] = count;
                 if (physical >= count) continue;
-                if (oldChildren[logical].Key is { } key
-                    && children.Get(physical) is FrameworkElement fe
-                    && Reconciler.GetElementTag(fe)?.Key != key)
-                    continue;
+                if (children.Get(physical) is FrameworkElement fe)
+                {
+                    var controlKey = Reconciler.GetElementTag(fe)?.Key;
+                    // An unkeyed Memo must not claim a keyed sibling, but its own
+                    // realized output can carry a key that is not a sibling key.
+                    if (oldChildren[logical].Key is { } key
+                        ? controlKey != key
+                        : controlKey is not null && siblingKeys.ContainsKey(controlKey))
+                        continue;
+                }
                 oldToPanel[logical] = physical++;
             }
 
@@ -459,6 +463,7 @@ internal static class ChildReconciler
         }
         finally
         {
+            ReturnKeyIndexDict(siblingKeys);
             ArrayPool<int>.Shared.Return(oldToPanel);
         }
     }
@@ -533,14 +538,7 @@ internal static class ChildReconciler
                     && panelIdx < childCount
                     && (existingControl ??= children.Get(panelIdx)) is FrameworkElement fe)
                 {
-                    if (newEl.HasCallbacks)
-                        Reconciler.SetElementTag(fe, newEl);
-                    else if (Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
-                        reconciler.RefreshCallSiteTagOnSkip(fe, newEl);
-                    if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
-                        && Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
-                        reconciler.PublishSourceOnSkip(fe, newEl);
-                    Reconciler.RefreshGestureDragStateOnSkip(fe, oldEl.Modifiers, newEl.Modifiers);
+                    reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
                 }
                 prefixLen++;
                 continue;
@@ -594,14 +592,7 @@ internal static class ChildReconciler
                     && panelIdx < childCount
                     && (existingControl ??= children.Get(panelIdx)) is FrameworkElement fe)
                 {
-                    if (newEl.HasCallbacks)
-                        Reconciler.SetElementTag(fe, newEl);
-                    else if (Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
-                        reconciler.RefreshCallSiteTagOnSkip(fe, newEl);
-                    if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
-                        && Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
-                        reconciler.PublishSourceOnSkip(fe, newEl);
-                    Reconciler.RefreshGestureDragStateOnSkip(fe, oldEl.Modifiers, newEl.Modifiers);
+                    reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
                 }
                 suffixLen++;
                 continue;

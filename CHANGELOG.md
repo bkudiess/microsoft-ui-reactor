@@ -34,6 +34,8 @@ Conventions for contributors:
   remain source-compatible; existing binaries must be rebuilt for the changed return types
   (spec 036 §11.3).
 
+- Optional `ItemsHost.SetCollection` and property-owned teardown via the three-callback `ImperativeBridged` overload ([control reconciler guide](docs/guide/control-reconciler-protocol.md)).
+
 - **ReactorGallery catches up with recent framework features.** A new **System →
   File pickers** page demonstrates `PickFileAsync`, `PickMultipleFilesAsync`
   (with labelled `FileTypeChoices`), `PickFolderAsync` / `PickMultipleFoldersAsync`
@@ -257,6 +259,17 @@ Conventions for contributors:
 
 ### Changed
 
+- **Markdown `LinkBuilder` now receives a `MarkdownLink`** (#1436). Breaking: the
+  callback's type changes from `Func<Element[], Uri, Element>` to
+  `Func<MarkdownLink, Element>`. `MarkdownLink` carries the label as plain `Text`
+  (image alt text in place of images, entities decoded, line breaks as spaces), the
+  formatted `Label` (`RichTextBlockElement`, `null` when empty, where the old
+  callback got a 0- or 1-element array), and the validated `Uri`, so setting an
+  accessible name or tooltip no longer means walking the label's inlines. Existing
+  `(label, uri) => ...` callbacks no longer compile; rewrite them as
+  `link => ...` using `link.Label` and `link.Uri`. The URI policy, nesting rules,
+  label styling and null-result error are unchanged.
+
 - **Picker helpers moved to `Microsoft.Windows.Storage.Pickers` and renamed as non-hooks**
   (issue #1374, spec 054 §8.3). Breaking: `UseFilePickerAsync` / `UseMultipleFilesPickerAsync`
   / `UseFolderPickerAsync` / `UseSaveFilePickerAsync` are now `PickFileAsync` /
@@ -384,9 +397,23 @@ Conventions for contributors:
   Fading controls retained from an earlier render no longer shift keyed prefix, suffix,
   removal or reorder updates onto another child's control. Live controls keep their
   identity and the final child order remains correct when the exits complete.
-  Null-mounted keyed Memo slots remain absent from the physical map and insertion
+  Null-mounted Memo slots remain absent from the physical map and insertion
   anchors, including when exits occur in the same panel or another panel sharing
   the reconciler.
+
+- **Wrapped third-party controls now get source-map call sites** (spec 010). A factory
+  emitted by `[GenerateReactorWrapper]` (`SettingsCard(...)`, `RadialGauge(...)`) is
+  invisible to the source-map generator, because no source generator sees another's
+  output. Its calls were never stamped, and every DSL call taking one as an argument —
+  `VStack(8, SettingsCard(...))`, `HStack(8, gauge.Width(140))` — failed to bind there
+  and was dropped too, so devtools saw a bare `StackPanel` with no Reactor element.
+  `Reactor.Wrappers.Generator` now intercepts calls to the factories it emits (same line,
+  column and `ReactorSourceMap.Enabled` rules; only when `ReactorSourceMap` is true and
+  the build lists `Microsoft.UI.Reactor.Generated` in `InterceptorsNamespaces`), and the
+  source-map generator re-binds such containing calls as if each wrapper value were
+  already an `Element`, so they keep their location and declared name — or leaves a call
+  unstamped where that could change which overload the real compilation picks.
+
 - **ThemeRef resource overrides follow a `RequestedTheme` set outside the Reactor tree**
   (follow-up to #771). When an app themes a native ancestor of a `ReactorHostControl`
   or a `ReactorHost.ContentTarget`
@@ -400,6 +427,17 @@ Conventions for contributors:
   refresh unchanged descendants when reused under a different theme, and a change to the host's inherited theme
   forces a resource refresh even through unchanged subtrees (including when a
   theme-event render runs before the host's Loaded event).
+
+- **A declarative `ContentDialog` follows the theme where it is declared** (issue #1388,
+  PR #1389). The dialog is side-mounted on the window's `XamlRoot`, so it rendered in the
+  window/app theme. It now follows the effective theme (`ActualTheme`) at its declaration
+  site, including local ancestor overrides and secondary windows, and updates while open.
+  `.RequestedTheme(...)` on the dialog is now forwarded to the visible dialog (it only
+  reached the hidden placeholder); an explicit `ElementTheme.Default` follows the owner, as
+  elsewhere in Reactor. `.Set(dialog => ...)` still runs last and wins, even when it writes
+  the theme the dialog would follow. Dialog content `ThemeRef` resources resolve against the
+  dialog's theme on first open. Apps relying on the old look can pin it with
+  `.RequestedTheme(...)` or `.Set(d => d.RequestedTheme = ...)`.
 
 - **Diagnostics an inspector relies on (winapp DevTools) are no longer missing or anonymous**
   (issue #1421, spec 044 / spec 010 / spec 042).
@@ -436,6 +474,10 @@ Conventions for contributors:
   outer link. If the outer target is rejected, the whole label renders as plain
   text, and a URL inside it does not become a separate link. Links render as
   before when no callback is set.
+- **Markdown numeric character references are decoded** (#1436). `&#65;` and
+  `&#x42;` used to render as literal text; they now render as `A` and `B`, like
+  named entities. Following CommonMark, `&#0;`, surrogate code points and values
+  above U+10FFFF render as U+FFFD.
 - **Opening a `Flyout` from state no longer replaces the window with a render error**
   (issue #1419). `Flyout(Button(...), ...) with { IsOpen = open }` opened through
   `FlyoutBase.ShowAttachedFlyout`, but a Button/SplitButton target holds its flyout in the
@@ -494,6 +536,8 @@ Conventions for contributors:
   (`ForEach`'s `Func<T, Element>`) and `where T : Element` constraints, so those
   projections still report. An unresolved type keeps the old verdict, so broken code
   still reports.
+
+- Flat `ItemsHost` children reconcile incrementally, same-instance Element item sources honor dirty-state/context/theme/forced-render invalidation instead of skipping unconditionally, and generated Element slots receive terminal teardown while still parented ([control reconciler guide](docs/guide/control-reconciler-protocol.md)).
 
 - **Source-map generator no longer fails under `dotnet watch`** (issue #1404, spec 010).
   When Reactor is a project reference, Hot Reload's workspace compilation sees Reactor's

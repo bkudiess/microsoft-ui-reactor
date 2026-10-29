@@ -7732,6 +7732,19 @@ public sealed partial class Reconciler : IDisposable
         }
     }
 
+    internal HashSet<V1Protocol.OverlayLifecycle.ContentDialogLifetime>? ContentDialogLifetimes;
+    internal bool IsDisposingContentDialogs { get; private set; }
+
+    internal void RetireContentDialogs()
+    {
+        if (IsDisposingContentDialogs) return;
+        IsDisposingContentDialogs = true;
+        if (ContentDialogLifetimes is not { Count: > 0 } lifetimes) return;
+        foreach (var lifetime in lifetimes.ToArray())
+            lifetime.Retire();
+        ContentDialogLifetimes = null;
+    }
+
     public void Dispose()
     {
         global::System.Runtime.ExceptionServices.ExceptionDispatchInfo? pendingPropagation;
@@ -7749,6 +7762,7 @@ public sealed partial class Reconciler : IDisposable
     /// </summary>
     internal global::System.Runtime.ExceptionServices.ExceptionDispatchInfo? DisposeCollectingPropagation()
     {
+        RetireContentDialogs();
         // Hosts dispose through here rather than Dispose(); a disposed reconciler's nodes are dead.
         _disposedForDiagnostics = true;
         // Issue #1291: with a RenderErrorHandler configured, every effect cleanup runs and

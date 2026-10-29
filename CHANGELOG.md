@@ -393,6 +393,13 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Disposing a host retires its ContentDialogs.** `ReactorHostControl.Dispose()`,
+  `ReactorHost.Dispose()`, and standalone reconciler disposal cancel deferred opens
+  and detach/hide owned dialogs before user cleanup, without raising the element's
+  `OnClosed`. Previously effect cleanup ran but the native modal could remain on
+  screen after its host was disposed. Ordinary tree-disposal cleanup semantics
+  are unchanged (spec 047 §4.5).
+
 - **Wrapped third-party controls now get source-map call sites** (spec 010). A factory
   emitted by `[GenerateReactorWrapper]` (`SettingsCard(...)`, `RadialGauge(...)`) is
   invisible to the source-map generator, because no source generator sees another's

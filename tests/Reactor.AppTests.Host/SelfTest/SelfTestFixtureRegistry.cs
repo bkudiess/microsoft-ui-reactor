@@ -370,6 +370,14 @@ internal static class SelfTestFixtureRegistry
         "ContentDialogLive_UnmountTearsDownOpenDialog",
         "ContentDialogLive_RoutesClosedToLatestRender",
         "ContentDialogLive_ReopensAfterClose",
+        "ContentDialogDispose_PublicHost",
+        "ContentDialogDispose_Deferred",
+        "ContentDialogDispose_DeferredUnmount",
+        "ContentDialogDispose_WindowHost",
+        "ContentDialogDispose_ThrowingRoot",
+        "ContentDialogDispose_BeforeShow",
+        "ContentDialogDispose_PendingShow",
+        "ContentDialogDispose_Closing",
         "Diagnostics_ContentDialogTag",
         "ContentDialogTheme_Lifecycle",
         "ContentDialogTheme_ExplicitOpenMatrix",
@@ -2545,6 +2553,14 @@ internal static class SelfTestFixtureRegistry
         "ContentDialogLive_UnmountTearsDownOpenDialog" => new ContentDialogLiveContentFixtures.ContentDialog_UnmountTearsDownOpenDialog(harness),
         "ContentDialogLive_RoutesClosedToLatestRender" => new ContentDialogLiveContentFixtures.ContentDialog_RoutesClosedToLatestRender(harness),
         "ContentDialogLive_ReopensAfterClose" => new ContentDialogLiveContentFixtures.ContentDialog_ReopensAfterClose(harness),
+        "ContentDialogDispose_PublicHost" => new ContentDialogDisposeFixture(harness),
+        "ContentDialogDispose_Deferred" => new ContentDialogDisposeEdgeFixtures.Deferred(harness),
+        "ContentDialogDispose_DeferredUnmount" => new ContentDialogDisposeEdgeFixtures.DeferredUnmount(harness),
+        "ContentDialogDispose_WindowHost" => new ContentDialogDisposeEdgeFixtures.WindowHost(harness),
+        "ContentDialogDispose_ThrowingRoot" => new ContentDialogDisposeEdgeFixtures.ThrowingRoot(harness),
+        "ContentDialogDispose_BeforeShow" => new ContentDialogDisposeEdgeFixtures.BeforeShow(harness),
+        "ContentDialogDispose_PendingShow" => new ContentDialogDisposeEdgeFixtures.PendingShow(harness),
+        "ContentDialogDispose_Closing" => new ContentDialogDisposeEdgeFixtures.Closing(harness),
         "Diagnostics_ContentDialogTag" => new ContentDialogTagFixtures.DialogIsTagged(harness),
         "ContentDialogTheme_Lifecycle" => new ContentDialogThemeFixture(harness),
         "ContentDialogTheme_ExplicitOpenMatrix" => new ContentDialogThemeOpenMatrixFixture(harness, explicitTheme: true),
@@ -4191,6 +4207,3 @@ internal static class SelfTestFixtureRegistry
         _ => null,
     };
 }
-
-
-

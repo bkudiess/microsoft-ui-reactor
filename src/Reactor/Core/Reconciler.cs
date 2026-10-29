@@ -36,10 +36,6 @@ public sealed partial class Reconciler : IDisposable
     // look up per-instance navigation state; teardown stays here (Dispose loop +
     // CleanupNavigationHostNode).
     internal readonly Dictionary<UIElement, NavigationHostNode> _navigationHostNodes = new();
-    // Per-control unmount actions (.OnUnmount). Captured at ApplyModifiers from the
-    // authoritative modifier set (same source .OnMount reads), so it doesn't depend
-    // on the tagged element's identity at teardown. Invoked + removed on unmount.
-    private readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, Action<FrameworkElement>> _onUnmountActions = new();
     // Internal so V1-owned lifecycle classes (e.g. LazyStackLifecycle) can rent
     // pooled controls and pass the pool into element factories.
     internal readonly ElementPool _pool = new();
@@ -334,11 +330,8 @@ public sealed partial class Reconciler : IDisposable
                         Diagnostics.ComponentRenderControls.Registry.Forget(node.DiagnosticId, wrapper);
                     RunUnmountCleanups(node);
                 }
-                if (wrapper is FrameworkElement fe && _onUnmountActions.TryGetValue(fe, out var onUnmount))
-                {
-                    _onUnmountActions.Remove(fe);
-                    RunUnmountAction(onUnmount, fe);
-                }
+                if (wrapper is FrameworkElement fe)
+                    RunUnmountAction(fe);
                 if (_navigationHostNodes.ContainsKey(wrapper))
                     CleanupNavigationHostNode(wrapper);
             }
@@ -386,8 +379,11 @@ public sealed partial class Reconciler : IDisposable
         }
     }
 
-    private void RunUnmountAction(Action<FrameworkElement> onUnmount, FrameworkElement control)
+    private void RunUnmountAction(FrameworkElement control)
     {
+        if (!TryGetReactorState(control, out var state) || state.UnmountAction is not { } onUnmount)
+            return;
+        state.UnmountAction = null;
         if (_unmountCleanupErrorSink is not { } sink)
         {
             onUnmount(control);
@@ -1495,6 +1491,8 @@ public sealed partial class Reconciler : IDisposable
         public Element? Element;
         internal ElementTheme? RealizationTheme;
         public ModifierEventHandlerState? Modifiers;
+        // Native identity keeps teardown alive when WinRT replaces a collected managed wrapper.
+        public Action<FrameworkElement>? UnmountAction;
         // Per-native-element echo-suppress counter consumed by ChangeEchoSuppressor.
         // Lives here (not in a CWT-by-RCW) so that BeginSuppress on one managed
         // wrapper and ShouldSuppress on a different wrapper for the same native
@@ -2079,6 +2077,7 @@ public sealed partial class Reconciler : IDisposable
         if (state.ComponentDiagnosticId != 0)
             Diagnostics.ComponentRenderControls.Registry.Forget(state.ComponentDiagnosticId, fe);
         state.Element = null;
+        state.UnmountAction = null;
         state.Modifiers?.ClearCurrentHandlers();
         state.Modifiers = null;
         state.EchoSuppressCount = 0;
@@ -2454,6 +2453,7 @@ public sealed partial class Reconciler : IDisposable
                 rs.EchoSuppressScopeDepth = 0;
                 rs.PendingEchoMatch = null;
                 rs.PendingLabeledBy = null;
+                rs.UnmountAction = null;
                 ClearRefreshSnapshots(rs);
                 rs.Element = null;
             }
@@ -3862,11 +3862,8 @@ public sealed partial class Reconciler : IDisposable
         WithdrawAttachedValidation(control);
 
         // OnUnmountAction (.OnUnmount) — imperative teardown half of .OnMount.
-        if (control is FrameworkElement umFe && _onUnmountActions.TryGetValue(umFe, out var onUnmount))
-        {
-            _onUnmountActions.Remove(umFe);
-            RunUnmountAction(onUnmount, umFe);
-        }
+        if (control is FrameworkElement umFe)
+            RunUnmountAction(umFe);
 
         // Issue #917 — a TitleBar going away withdraws both its
         // ExtendsContentIntoTitleBar inference and its caption-height
@@ -4313,11 +4310,8 @@ public sealed partial class Reconciler : IDisposable
         WithdrawAttachedValidation(control);
 
         // OnUnmountAction (.OnUnmount) — imperative teardown half of .OnMount.
-        if (control is FrameworkElement umFe && _onUnmountActions.TryGetValue(umFe, out var onUnmount))
-        {
-            _onUnmountActions.Remove(umFe);
-            RunUnmountAction(onUnmount, umFe);
-        }
+        if (control is FrameworkElement umFe)
+            RunUnmountAction(umFe);
 
         // Issue #917 — mirrors UnmountRecursive: a TitleBar reached through the
         // pooling traversal (nested in a poolable container) must also withdraw
@@ -6207,11 +6201,11 @@ public sealed partial class Reconciler : IDisposable
         // (pool reuse remounts with oldM == null, so this can't be gated on oldM).
         if (m.OnUnmountAction is not null)
         {
-            _onUnmountActions.AddOrUpdate(fe, m.OnUnmountAction);
+            GetOrCreateReactorState(fe).UnmountAction = m.OnUnmountAction;
             _boundaryMountJournal?.Add(fe);
         }
-        else
-            _onUnmountActions.Remove(fe);
+        else if (TryGetReactorState(fe, out var unmountState))
+            unmountState.UnmountAction = null;
 
         // Element ref — populate on mount/update so imperative APIs (FocusManager.Focus)
         // can target the mounted control. Writing on every update is cheap (single field

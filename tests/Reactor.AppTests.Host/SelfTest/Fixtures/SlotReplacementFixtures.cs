@@ -814,6 +814,14 @@ internal static class SlotReplacementFixtures
                 _unmounted.Count == 2 && ReferenceEquals(_unmounted[1], _mounted[1]) && _counts.Cleanups == 2,
                 Describe());
 
+            // The native child stays mounted even if its managed wrapper is collected.
+            await Task.Run(static () =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            });
+
             H.ClickButton(label);
             H.Check($"{Name}_Removed", await Harness.WaitFor(() => Child(hostControl) is null), Describe());
             await Harness.Render();

@@ -393,6 +393,11 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Unmount callbacks survive managed-wrapper collection** (spec 047 §4.4).
+  `.OnUnmount(...)` now lives in native attached state rather than a weak table
+  keyed by a managed wrapper, so a still-mounted control keeps its teardown callback
+  when WinRT projects a new wrapper before removal.
+
 - **`AutoSuggestBox` clears stale choices when `Suggestions` becomes empty**
   (spec 047 §6.1). The suggestions binding now clears the native `ItemsSource`
   instead of skipping empty updates, preserving the existing control and allowing

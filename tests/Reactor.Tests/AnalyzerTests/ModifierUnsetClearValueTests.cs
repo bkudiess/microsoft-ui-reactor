@@ -83,6 +83,10 @@ public class ModifierUnsetClearValueTests
                 "property. Removing OnUnmount must null the registered callback so teardown " +
                 "does not invoke it; there is no styled value or DP to restore. The native " +
                 "SlotReplace_UnmountCallbackUpdates fixture mutation-checks this clear.",
+            ["UnmountActionOwner"] =
+                "ReactorState.UnmountActionOwner is an opaque managed identity token, not a " +
+                "dependency property. It is cleared with UnmountAction when that registration " +
+                "is removed; there is no styled value or DP to restore.",
             ["PendingLabeledBy"] =
                 "ReactorState.PendingLabeledBy is a plain field, not a dependency property. The " +
                 "LabeledBy unset arm nulls it to retire a still-parked deferred resolution so a " +

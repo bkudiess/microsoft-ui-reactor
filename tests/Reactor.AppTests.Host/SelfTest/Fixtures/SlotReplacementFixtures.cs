@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Reactor.AppTests.Host.SelfTest;
 using Microsoft.UI.Reactor.Controls.Validation;
 using Microsoft.UI.Reactor.Core;
@@ -739,7 +740,11 @@ internal static class SlotReplacementFixtures
         {
             await RunScenario(clearCallback: true);
             await RunScenario(clearCallback: false);
-            await RunFlyoutScenario();
+            await RunFlyoutScenario(dropWrapperCallback: false);
+            await RunFlyoutScenario(dropWrapperCallback: true);
+            await RunOwnershipScenario(withModifiers: false, withCallback: false);
+            await RunOwnershipScenario(withModifiers: true, withCallback: false);
+            await RunOwnershipScenario(withModifiers: true, withCallback: true);
         }
 
         private async Task RunScenario(bool clearCallback)
@@ -788,10 +793,10 @@ internal static class SlotReplacementFixtures
                 $"a={callsA}, b={callsB}");
         }
 
-        private async Task RunFlyoutScenario()
+        private async Task RunFlyoutScenario(bool dropWrapperCallback)
         {
-            const string name = "UnmountUpdate_FlyoutTarget";
-            int calls = 0;
+            var name = dropWrapperCallback ? "UnmountUpdate_FlyoutDropsCallback" : "UnmountUpdate_FlyoutTarget";
+            int calls = 0, wrapperCalls = 0;
             FrameworkElement? unmounted = null;
             Action<FrameworkElement> callback = control =>
             {
@@ -802,11 +807,16 @@ internal static class SlotReplacementFixtures
             host.Mount(ctx =>
             {
                 var (step, setStep) = ctx.UseState(0);
+                Element? child = null;
+                if (step < 2)
+                {
+                    child = Flyout(TextBlock($"{name} {step}").OnUnmount(callback), TextBlock("content")).Margin(2);
+                    if (dropWrapperCallback && step == 0)
+                        child = child.OnUnmount(_ => wrapperCalls++);
+                }
                 return VStack(
                     Button(name, () => setStep(step + 1)),
-                    step < 2
-                        ? Flyout(TextBlock($"{name} {step}").OnUnmount(callback), TextBlock("content")).Margin(2)
-                        : null);
+                    child);
             });
 
             H.Check($"{name}_Mounted", await Harness.WaitFor(() => H.FindText($"{name} 0") is not null));
@@ -815,16 +825,52 @@ internal static class SlotReplacementFixtures
             H.ClickButton(name);
             H.Check($"{name}_Updated", await Harness.WaitFor(() => H.FindText($"{name} 1") is not null));
             H.Check($"{name}_SameControl", original is not null && ReferenceEquals(original, H.FindText($"{name} 1")));
-            H.Check($"{name}_NoPrematureCallback", calls == 0, $"calls={calls}");
+            H.Check($"{name}_NoPrematureCallback", calls == 0 && wrapperCalls == 0,
+                $"target={calls}, wrapper={wrapperCalls}");
 
             H.ClickButton(name);
             H.Check($"{name}_Removed", await Harness.WaitFor(() => H.FindText($"{name} 1") is null));
             await Harness.Render();
-            H.Check($"{name}_UnmountedOnce", calls == 1 && original is not null && ReferenceEquals(original, unmounted),
-                $"calls={calls}");
+            H.Check($"{name}_UnmountedOnce",
+                calls == 1 && wrapperCalls == 0 && original is not null && ReferenceEquals(original, unmounted),
+                $"target={calls}, wrapper={wrapperCalls}");
             host.Mount(_ => Empty());
             await Harness.Render();
-            H.Check($"{name}_NoRepeatedCallback", calls == 1, $"calls={calls}");
+            H.Check($"{name}_NoRepeatedCallback", calls == 1 && wrapperCalls == 0,
+                $"target={calls}, wrapper={wrapperCalls}");
+        }
+
+        private async Task RunOwnershipScenario(bool withModifiers, bool withCallback)
+        {
+            var name = "UnmountOwner_" + (withCallback ? "Callback" : withModifiers ? "Margin" : "Bare");
+            int callsA = 0, callsB = 0;
+            var retained = new WinXC.TextBlock { Text = name };
+            var hostA = H.CreateHost();
+            hostA.Mount(_ => XamlHost(() => retained).OnUnmount(_ => callsA++));
+            await Harness.Render();
+            H.Check($"{name}_MountedInA", ReferenceEquals(retained, H.FindText(name)));
+            hostA.Dispose();
+            H.SetContent(null);
+            H.Check($"{name}_DisposeDoesNotUnmount", callsA == 0, $"a={callsA}");
+
+            var hostB = H.CreateHost();
+            hostB.Mount(_ =>
+            {
+                var child = XamlHost(() => retained);
+                if (withModifiers) child = child.Margin(2);
+                if (withCallback) child = child.OnUnmount(_ => callsB++);
+                return child;
+            });
+            await Harness.Render();
+            H.Check($"{name}_SameControlInB", ReferenceEquals(retained, H.FindText(name)));
+            hostB.Mount(_ => Empty());
+            await Harness.Render();
+            H.Check($"{name}_Removed", H.FindText(name) is null);
+            H.Check($"{name}_OnlyCurrentOwnerInvoked", callsA == 0 && callsB == (withCallback ? 1 : 0),
+                $"a={callsA}, b={callsB}");
+            hostB.Dispose();
+            H.Check($"{name}_NoRepeatedCallback", callsA == 0 && callsB == (withCallback ? 1 : 0),
+                $"a={callsA}, b={callsB}");
         }
     }
 
@@ -909,13 +955,16 @@ internal static class SlotReplacementFixtures
                 _unmounted.Count == 2 && ReferenceEquals(_unmounted[1], _mounted[1]) && _counts.Cleanups == 2,
                 Describe());
 
-            // The native child stays mounted even if its managed wrapper is collected.
+            var textWrappers = CaptureTextChildWrapper(hostControl);
             await Task.Run(static () =>
             {
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();
             });
+            H.Check($"{Name}_FreshWrapperAfterCollect",
+                Child(hostControl) is WinXC.TextBlock fresh && !textWrappers.TryGetValue(fresh, out _),
+                "the native text child must remain mounted with a fresh managed wrapper");
 
             H.ClickButton(label);
             H.Check($"{Name}_Removed", await Harness.WaitFor(() => Child(hostControl) is null), Describe());
@@ -927,6 +976,17 @@ internal static class SlotReplacementFixtures
                 await Harness.WaitFor(() => Child(hostControl) is WinXC.TextBlock { Text: var readded } && readded == ReaddedText),
                 Describe());
             H.Check($"{Name}_HostKept", _hosts.Count == 1, Describe());
+        }
+
+        // Keep the mount-time wrapper out of RunAsync's state machine across collection.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private ConditionalWeakTable<WinXC.TextBlock, object> CaptureTextChildWrapper(FrameworkElement host)
+        {
+            var child = Child(host) as WinXC.TextBlock
+                ?? throw new InvalidOperationException("Expected a mounted TextBlock child.");
+            var wrappers = new ConditionalWeakTable<WinXC.TextBlock, object>();
+            wrappers.Add(child, new object());
+            return wrappers;
         }
 
         private string Describe()

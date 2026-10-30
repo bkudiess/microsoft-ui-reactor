@@ -352,6 +352,7 @@ public sealed partial class Reconciler : IDisposable
     /// behaviour: the first failure escapes.
     /// </summary>
     private Action<Exception>? _unmountCleanupErrorSink;
+    private readonly object _unmountActionOwner = new();
 
     internal IsolatedUnmountScope IsolateUnmountCleanupFailures(Action<Exception> onError)
     {
@@ -381,9 +382,12 @@ public sealed partial class Reconciler : IDisposable
 
     private void RunUnmountAction(FrameworkElement control)
     {
-        if (!TryGetReactorState(control, out var state) || state.UnmountAction is not { } onUnmount)
+        if (!TryGetReactorState(control, out var state)
+            || !ReferenceEquals(state.UnmountActionOwner, _unmountActionOwner)
+            || state.UnmountAction is not { } onUnmount)
             return;
         state.UnmountAction = null;
+        state.UnmountActionOwner = null;
         if (_unmountCleanupErrorSink is not { } sink)
         {
             onUnmount(control);
@@ -1493,6 +1497,8 @@ public sealed partial class Reconciler : IDisposable
         public ModifierEventHandlerState? Modifiers;
         // Native identity keeps teardown alive when WinRT replaces a collected managed wrapper.
         public Action<FrameworkElement>? UnmountAction;
+        // Opaque identity scopes callbacks to a reconciler without retaining that reconciler.
+        public object? UnmountActionOwner;
         // Per-native-element echo-suppress counter consumed by ChangeEchoSuppressor.
         // Lives here (not in a CWT-by-RCW) so that BeginSuppress on one managed
         // wrapper and ShouldSuppress on a different wrapper for the same native
@@ -2081,6 +2087,7 @@ public sealed partial class Reconciler : IDisposable
             Diagnostics.ComponentRenderControls.Registry.Forget(state.ComponentDiagnosticId, fe);
         state.Element = null;
         state.UnmountAction = null;
+        state.UnmountActionOwner = null;
         state.Modifiers?.ClearCurrentHandlers();
         state.Modifiers = null;
         state.EchoSuppressCount = 0;
@@ -2457,6 +2464,7 @@ public sealed partial class Reconciler : IDisposable
                 rs.PendingEchoMatch = null;
                 rs.PendingLabeledBy = null;
                 rs.UnmountAction = null;
+                rs.UnmountActionOwner = null;
                 ClearRefreshSnapshots(rs);
                 rs.Element = null;
             }
@@ -6225,15 +6233,24 @@ public sealed partial class Reconciler : IDisposable
 
         // OnUnmountAction — captured here (authoritative modifier set) so it fires
         // reliably at teardown regardless of the tagged element's identity. Keep the
-        // latest action across re-renders; clear only a removed registration.
-        // Unmount and pool return already clear the slot before a later mount.
+        // latest action across re-renders; don't clear an inner target's registration
+        // when a shared-control wrapper drops its own callback. Owner identity prevents
+        // a retained control from firing a disposed reconciler's callback in a new host.
         if (m.OnUnmountAction is not null)
         {
-            GetOrCreateReactorState(fe).UnmountAction = m.OnUnmountAction;
+            var callbackState = GetOrCreateReactorState(fe);
+            callbackState.UnmountAction = m.OnUnmountAction;
+            callbackState.UnmountActionOwner = _unmountActionOwner;
             _boundaryMountJournal?.Add(fe);
         }
-        else if (oldM?.OnUnmountAction is not null && TryGetReactorState(fe, out var unmountState))
+        else if (oldM?.OnUnmountAction is not null
+            && TryGetReactorState(fe, out var unmountState)
+            && ReferenceEquals(unmountState.UnmountActionOwner, _unmountActionOwner)
+            && ReferenceEquals(unmountState.UnmountAction, oldM.OnUnmountAction))
+        {
             unmountState.UnmountAction = null;
+            unmountState.UnmountActionOwner = null;
+        }
 
         // Element ref — populate on mount/update so imperative APIs (FocusManager.Focus)
         // can target the mounted control. Writing on every update is cheap (single field

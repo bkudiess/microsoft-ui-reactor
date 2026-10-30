@@ -414,6 +414,9 @@ Conventions for contributors:
   keyed by a managed wrapper, so a still-mounted control keeps its teardown callback
   when WinRT projects a new wrapper before removal. Callback-free wrapper modifiers
   also preserve the inner target's callback when both share a control, as with `Flyout`.
+  Registrations are scoped to their reconciler, so remounting an app-retained control
+  in another host cannot invoke a disposed host's callback. Dropping a wrapper's own
+  callback preserves a newly registered inner-target callback.
 
 - **Keyed-list diagnostics retain their native control identity** (spec 047 §3).
   Duplicate/null-key warning counters now share one ledger across managed wrappers

@@ -8,6 +8,26 @@ namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
 
 internal static class ContentDialogDisposeEdgeFixtures
 {
+    private sealed class EffectProbe
+    {
+        internal int Effects;
+        internal int Cleanups;
+    }
+
+    private sealed class EffectfulChild : Component<EffectProbe>
+    {
+        public override Element Render()
+        {
+            var probe = Props;
+            UseEffect(() =>
+            {
+                probe.Effects++;
+                return () => probe.Cleanups++;
+            }, []);
+            return TextBlock("effectful child");
+        }
+    }
+
     internal sealed class PendingShow(Harness h) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
@@ -242,4 +262,85 @@ internal static class ContentDialogDisposeEdgeFixtures
             }
         }
     }
+
+    internal sealed class MountSiblingAfterDisposal(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            using var host = new ReactorHostControl();
+            var probe = new EffectProbe();
+            WinUI.ContentDialog? dialog = null;
+            H.SetContent(host);
+            host.Mount(_ =>
+                (ContentDialog(
+                    "Dispose during content mount",
+                    VStack(
+                        TextBlock("dispose first").Set(_ => host.Dispose()),
+                        Component<EffectfulChild, EffectProbe>(probe)),
+                    "OK") with
+                { IsOpen = true })
+                .Set(native => dialog = native));
+
+            try
+            {
+                await Harness.Render();
+                H.Check("DialogDispose_MountSiblingMountedAfterDisposal", probe.Effects == 1);
+                H.Check("DialogDispose_MountSiblingCleanupAfterDisposal", probe.Cleanups == 1);
+                H.Check("DialogDispose_MountSiblingNotReattached", dialog is { Content: null });
+                H.Check("DialogDispose_MountSiblingNeverOpened", ContentDialogProbe.FindAnyOpen(H) is null);
+            }
+            finally
+            {
+                dialog?.Hide();
+                await ContentDialogProbe.WaitForNoneOpen(H);
+                H.SetContent(null);
+            }
+        }
+    }
+
+    internal sealed class UpdateReplacementAfterDisposal(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            const string title = "Dispose during content update";
+            using var host = new ReactorHostControl();
+            var probe = new EffectProbe();
+            Action<bool>? setReplacement = null;
+            WinUI.ContentDialog? dialog = null;
+            H.SetContent(host);
+            host.Mount(ctx =>
+            {
+                var (replace, set) = ctx.UseState(false);
+                setReplacement = set;
+                var content = replace
+                    ? (Element)Border(Component<EffectfulChild, EffectProbe>(probe))
+                        .Set(_ => host.Dispose())
+                    : TextBlock("original content");
+                return (ContentDialog(title, content, "OK") with { IsOpen = true })
+                    .Set(native => dialog = native);
+            });
+
+            try
+            {
+                var opened = await ContentDialogProbe.WaitForOpen(H, title) is not null;
+                H.Check("DialogDispose_UpdateReplacementOpened", opened);
+                if (!opened) return;
+
+                setReplacement!(true);
+                await Harness.Render();
+                var closed = await ContentDialogProbe.WaitForClosed(H, title);
+                H.Check("DialogDispose_UpdateReplacementClosed", closed);
+                H.Check("DialogDispose_UpdateReplacementNotReattached", dialog is { Content: null });
+                H.Check("DialogDispose_UpdateReplacementEffectMounted", probe.Effects == 1);
+                H.Check("DialogDispose_UpdateReplacementCleanupOnce", probe.Cleanups == 1);
+            }
+            finally
+            {
+                dialog?.Hide();
+                await ContentDialogProbe.WaitForNoneOpen(H);
+                H.SetContent(null);
+            }
+        }
+    }
+
 }

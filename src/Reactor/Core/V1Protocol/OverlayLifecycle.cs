@@ -124,6 +124,7 @@ internal static class OverlayLifecycle
         // No live dialog: never opened, still deferred waiting on XamlRoot, or
         // already dismissed. A rising edge above is the only way back.
         if (!s_liveDialogs.TryGetValue(fe, out var live)) return null;
+        if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs) return null;
         var dialog = live.Dialog;
 
         if (!n.IsOpen)
@@ -149,15 +150,28 @@ internal static class OverlayLifecycle
         if (dialog.Content is UIElement existing && reconciler.CanUpdate(o.Content, n.Content))
         {
             var replacement = reconciler.UpdateHostedChild(o.Content, n.Content, existing, requestRerender);
+            if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs)
+            {
+                if (replacement is not null) reconciler.UnmountChild(replacement);
+                return null;
+            }
             if (replacement is not null && !ReferenceEquals(dialog.Content, replacement))
                 dialog.Content = replacement;
         }
         else
         {
             if (dialog.Content is UIElement stale) reconciler.UnmountChild(stale);
-            dialog.Content = reconciler.Mount(n.Content, requestRerender) as UIElement;
+            if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs) return null;
+            var mounted = reconciler.Mount(n.Content, requestRerender) as UIElement;
+            if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs)
+            {
+                if (mounted is not null) reconciler.UnmountChild(mounted);
+                return null;
+            }
+            dialog.Content = mounted;
         }
 
+        if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs) return null;
         live.Theme.ApplySetters(n);
         return null;
     }
@@ -331,14 +345,14 @@ internal static class OverlayLifecycle
         // rather than capturing the mount-time element: the dialog re-renders
         // while open so those closures go stale, and clearing the tag is how
         // unmount teardown suppresses an OnClosed it did not mean to raise.
-        dialog.Opened += (_, _) =>
+        void OnOpened(object? _, object? __)
         {
             // Hide before Opened need not cancel a queued native ShowAsync.
             if (lifetime.Retired || reconciler.IsDisposingContentDialogs)
                 dialog.Hide();
             else
                 (Reconciler.GetElementTag(anchor) as ContentDialogElement)?.OnOpened?.Invoke();
-        };
+        }
         var theme = new ContentDialogThemeBinding(anchor, dialog);
         lifetime.Dialog = dialog;
         lifetime.Theme = theme;
@@ -358,10 +372,12 @@ internal static class OverlayLifecycle
         // re-open has installed a newer dialog over it.
         bool ownsClose;
         WinUI.ContentDialogResult winUiResult;
+        dialog.Opened += OnOpened;
         try
         {
             theme.Apply(cdEl);
-            dialog.Content = reconciler.MountDialogContent(anchor, cdEl.Content, requestRerender, dialog.RequestedTheme);
+            dialog.Content = reconciler.MountDialogContent(
+                anchor, cdEl.Content, requestRerender, dialog.RequestedTheme, lifetime);
             // ApplySetters last so caller .Set(...) wins (including theme/XamlRoot).
             theme.ApplySetters(cdEl);
             if (lifetime.Retired)
@@ -373,6 +389,7 @@ internal static class OverlayLifecycle
         }
         finally
         {
+            dialog.Opened -= OnOpened;
             // In a finally so it also runs when ShowAsync throws — WinUI rejects
             // a second dialog on the same XamlRoot — which would otherwise strand
             // the tracking entry and leak the content subtree mounted above.

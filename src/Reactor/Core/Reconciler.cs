@@ -6263,6 +6263,9 @@ public sealed partial class Reconciler : IDisposable
         // latest action across re-renders; don't clear an inner target's registration
         // when a shared-control wrapper drops its own callback. Owner identity prevents
         // a retained control from firing a disposed reconciler's callback in a new host.
+        // Known limitation: a shared control has one slot, so a wrapper's callback
+        // replaces the target's. If the wrapper later drops it while the target update is
+        // shallow-skipped, nothing re-registers the target's callback and it is lost.
         if (m.OnUnmountAction is not null)
         {
             var callbackState = GetOrCreateReactorState(fe);

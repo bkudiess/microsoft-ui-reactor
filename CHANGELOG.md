@@ -412,11 +412,10 @@ Conventions for contributors:
 - **Unmount callbacks survive managed-wrapper collection** (spec 047 §3).
   `.OnUnmount(...)` now lives in native attached state rather than a weak table
   keyed by a managed wrapper, so a still-mounted control keeps its teardown callback
-  when WinRT projects a new wrapper before removal. Callback-free wrapper modifiers
-  also preserve the inner target's callback when both share a control, as with `Flyout`.
-  Registrations are scoped to their reconciler, so remounting an app-retained control
-  in another host cannot invoke a disposed host's callback. Dropping a wrapper's own
-  callback preserves a newly registered inner-target callback.
+  when WinRT projects a new wrapper before removal. Callbacks stay scoped to the host
+  that registered them. A wrapper that shares its control with an inner target, as
+  `Flyout` does, no longer erases the target's callback when the wrapper has no callback
+  of its own, or drops its own while the target re-registers.
 
 - **Keyed-list diagnostics retain their native control identity** (spec 047 §3).
   Duplicate/null-key warning counters now share one ledger across managed wrappers

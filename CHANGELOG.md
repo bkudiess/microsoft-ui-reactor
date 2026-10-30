@@ -415,6 +415,23 @@ Conventions for contributors:
   `OnClosed`. Previously effect cleanup ran but the native modal could remain on
   screen after its host was disposed. Ordinary tree-disposal cleanup semantics
   are unchanged (spec 047 §4.5).
+- **Unmount callbacks survive managed-wrapper collection** (spec 047 §3).
+  `.OnUnmount(...)` now lives in native attached state rather than a weak table
+  keyed by a managed wrapper, so a still-mounted control keeps its teardown callback
+  when WinRT projects a new wrapper before removal. Callbacks stay scoped to the host
+  that registered them. A wrapper that shares its control with an inner target, as
+  `Flyout` does, no longer erases the target's callback when the wrapper has no callback
+  of its own, or drops its own while the target re-registers.
+
+- **Keyed-list diagnostics retain their native control identity** (spec 047 §3).
+  Duplicate/null-key warning counters now share one ledger across managed wrappers
+  for the same control instead of emitting a second entry after wrapper collection.
+
+- **`AutoSuggestBox` clears stale choices when `Suggestions` becomes empty**
+  (spec 047 §6.1). The suggestions binding now clears the native `ItemsSource`
+  instead of skipping empty updates, preserving the existing control and allowing
+  later suggestions to repopulate it. Empty suggestions leave `ItemsSource` null,
+  so direct `Items.Add(...)` setters continue to work on mount.
 
 - **Keyed children keep their own controls while siblings exit** (spec 014, feature 2).
   Fading controls retained from an earlier render no longer shift keyed prefix, suffix,
@@ -422,7 +439,9 @@ Conventions for contributors:
   identity and the final child order remains correct when the exits complete.
   Null-mounted Memo slots remain absent from the physical map and insertion
   anchors, including when exits occur in the same panel or another panel sharing
-  the reconciler.
+  the reconciler. Retained exits and null-mounted slots no longer add control reads to
+  keyed updates that keep the children's order, and an exit playing in one panel no longer
+  adds a read per child to other keyed panels (up to 64 concurrent exits).
 
 - **Wrapped third-party controls now get source-map call sites** (spec 010). A factory
   emitted by `[GenerateReactorWrapper]` (`SettingsCard(...)`, `RadialGauge(...)`) is
@@ -534,12 +553,21 @@ Conventions for contributors:
   exit transition is still playing also no longer pairs its siblings with the wrong control.
 
 - **`ListView<T>` / `GridView<T>` rows are unmounted when WinUI drops their container
-  without recycling it** (issue #1423). Under fast insert / remove churn WinUI could park
-  a container offscreen, unlinked from any item, without raising the recycle
+  without recycling it** (issues #1423, #1440). Under fast insert / remove / move churn WinUI
+  could park a container offscreen, unlinked from any item, without raising the recycle
   `ContainerContentChanging`, so the row's components stayed mounted: their effects never
   cleaned up, and a `ReactorDiagnostics.TrySetState` on one was accepted but never rendered.
-  The sweep also handles an unlinked container whose item was already cleared while its
-  template still holds a live view; its visuals remain available for the native delete transition.
+  The update-time sweep also handles an unlinked container whose item was already cleared while
+  its template still holds a live view; its visuals remain available for the native delete
+  transition. WinUI parks it in the layout pass after the update (a row moved twice, or moved
+  out of the realized range, is enough), so after a structural change the reconciler now checks
+  the containers once that layout pass completes. A throwing cleanup no longer stops that sweep:
+  every parked row is torn down and the failure goes to the `RenderErrorHandler` as
+  `Cleanup`. Teardowns that finish regardless of cleanup failures (issue #1291) now also
+  collect a throwing control handler, descriptor `OnUnmount` hook or property unmount callback,
+  decorator or `RegisterType` unmount callback rather than stopping at it: each failure is
+  reported once, in order, the children it did not reach are torn down (once each), and the
+  half-torn-down control is never pooled.
 
 - **`REACTOR_A11Y_001` no longer flags text buttons with a non-literal string label**
   (spec 006 §6.3). `Button(S("Usage_Refresh"), onClick)` — a localized resource lookup,

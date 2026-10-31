@@ -151,7 +151,8 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     /// than the bug this rule exists to catch.
     /// </para>
     /// <para>
-    /// This is the only such entry in the framework today. A <c>ModifierTableIntegrityTests</c>
+    /// <c>BorderElement</c> also binds its record's <c>Background</c> through <c>Customize</c>.
+    /// A <c>ModifierTableIntegrityTests</c>
     /// guard parses every descriptor <c>Customize</c> hook and fails if another one starts (or stops)
     /// consuming a gated common modifier, so the exception list cannot go stale in either direction.
     /// </para>
@@ -159,6 +160,7 @@ public sealed class NoOpModifierAnalyzer : DiagnosticAnalyzer
     internal static readonly IReadOnlyCollection<string> DescriptorAppliedModifiers =
         new HashSet<string>(System.StringComparer.Ordinal)
         {
+            "Microsoft.UI.Reactor.Core.BorderElement|Background",
             "Microsoft.UI.Reactor.Core.RichTextBlockElement|Padding",
         };
 

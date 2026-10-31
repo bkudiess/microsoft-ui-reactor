@@ -409,6 +409,11 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Border theme-background precedence.** An unset background now releases local
+  values on pooled controls and direct-to-themed updates so a `ThemeRef` style
+  can supply the brush. Explicit brushes and native setters retain precedence
+  (spec 050).
+
 - **Unmount callbacks survive managed-wrapper collection** (spec 047 §3).
   `.OnUnmount(...)` now lives in native attached state rather than a weak table
   keyed by a managed wrapper, so a still-mounted control keeps its teardown callback

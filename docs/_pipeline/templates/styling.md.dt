@@ -105,6 +105,10 @@ tokens for theme-aware colors:
 Tokens are the right default. Reserve hex and `Brush` for brand colors
 that should stay constant regardless of mode.
 
+On `Border`, an unset `Background` record property releases its local value so
+the theme style can supply the brush, including after control reuse. An explicit
+brush or native `.Set(...)` background still takes precedence.
+
 ## Signal colors
 
 Status indicators use semantic signal colors:

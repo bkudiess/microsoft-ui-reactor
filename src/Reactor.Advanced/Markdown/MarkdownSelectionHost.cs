@@ -79,6 +79,9 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     internal IReadOnlyList<Rect> ProbeSelectionRects => _selectionRectangles;
     private List<string>? _perfGesture;
     private string? _perfOutput;
+    private int _perfNativeCaretQueries;
+    private int _perfNativeGlyphQueries;
+    private int _perfNativePointQueries;
     internal int LayoutPassCount { get; private set; }
     internal int MembershipCheckCount { get; private set; }
     internal int SegmentReadCount { get; private set; }
@@ -727,6 +730,8 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     private void UpdateDragSelection(string source)
     {
         bool measuring = _perfGesture is not null;
+        long allocated = measuring ? GC.GetAllocatedBytesForCurrentThread() : 0;
+        int nativeCarets = _perfNativeCaretQueries, nativeGlyphs = _perfNativeGlyphQueries, nativePoints = _perfNativePointQueries;
         long start = measuring ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         int characters = _characterRects.Count;
         int offset = HitTest(_dragPoint, out var entry, out int glyphOffset);
@@ -746,7 +751,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         {
             double drawMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             _perfGesture.Add(global::System.FormattableString.Invariant(
-                $"source={source} hitMs={hitMs:F4} drawMs={drawMs:F4} hitRects={hitCharacters} drawRects={_characterRects.Count - characters} drawGlyphs={_glyphRects.Count - glyphs} anchor={Document.Anchor} caret={Document.Caret} dragged={_dragged}"));
+                $"source={source} hitMs={hitMs:F4} drawMs={drawMs:F4} hitRects={hitCharacters} drawRects={_characterRects.Count - characters} drawGlyphs={_glyphRects.Count - glyphs} nativeCarets={_perfNativeCaretQueries - nativeCarets} nativeGlyphs={_perfNativeGlyphQueries - nativeGlyphs} nativePoints={_perfNativePointQueries - nativePoints} allocBytes={GC.GetAllocatedBytesForCurrentThread() - allocated} cacheCarets={_characterRects.Count} cacheGlyphs={_glyphRects.Count} anchor={Document.Anchor} caret={Document.Caret} dragged={_dragged}"));
         }
     }
 
@@ -1051,14 +1056,13 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         if (first.Height <= 1 || Math.Abs(first.Y - last.Y) >= .5 ||
             Math.Abs(first.Height - last.Height) >= .5 || bounds.Height > first.Height + .5)
             return false;
+        if (_perfGesture is not null) _perfNativePointQueries++;
         var pointer = rich.GetPositionFromPoint(Transform(rich).Inverse.TransformPoint(point));
         if (pointer is null) return false;
         local = pointer.Offset - segment.Start.Offset;
         if (local < 0 || local > entry.Text.Length) return false;
-        var rect = ComputeCharacterBounds(entry, entry.Start + local);
-        bool usable = rect.Height > 0;
-        if (usable) ProbeNativeHitCount++;
-        return usable;
+        ProbeNativeHitCount++;
+        return true;
     }
 
     internal Rect CharacterBounds(int offset)
@@ -1111,6 +1115,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             var pointer = segment.Start.GetPositionAtOffset(endOffset, LogicalDirection.Backward);
             if (pointer is not null)
             {
+                if (_perfGesture is not null) _perfNativeGlyphQueries++;
                 var end = Transform(segment.Owner).TransformBounds(
                     pointer.GetCharacterRect(LogicalDirection.Backward));
                 return _glyphRects[(offset, next)] = GlyphRectangle(start, end);
@@ -1204,6 +1209,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             var pointer = segment.Start.GetPositionAtOffset(segmentOffset, LogicalDirection.Forward);
             if (pointer is not null)
             {
+                if (_perfGesture is not null) _perfNativeCaretQueries++;
                 var rect = Transform(segment.Owner).TransformBounds(
                     pointer.GetCharacterRect(LogicalDirection.Forward));
                 rect.Width = Math.Max(1, rect.Width);
@@ -1391,6 +1397,17 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             if (entry.End <= Document.Start || entry.Start >= Document.End) continue;
             var surfaceBounds = Intersect(SurfaceBounds((MarkdownSelectionMarker)entry.Identity), viewport);
             if (surfaceBounds.Width <= 0 || surfaceBounds.Height <= 0) continue;
+            int drawEnd = Math.Min(Document.End, entry.End);
+            if (!ProbeDisableHitOptimization && !ProbeDisableClipOptimization &&
+                TryNativeCaret(entry, new Point(viewport.Right, surfaceBounds.Top), out int rightLocal))
+            {
+                int clippedEnd = Math.Min(drawEnd, entry.Start + Math.Min(entry.Text.Length, rightLocal + 2));
+                if (clippedEnd < drawEnd)
+                {
+                    ProbeSkippedGlyphs += drawEnd - clippedEnd;
+                    drawEnd = clippedEnd;
+                }
+            }
             bool canSkipRight = !ProbeDisableClipOptimization &&
                 _segments.TryGetValue((MarkdownSelectionMarker)entry.Identity, out var segments) &&
                 segments is [var segment] && segment.Identity is Run &&
@@ -1398,7 +1415,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
                 segment.Owner is RichTextBlock { FlowDirection: FlowDirection.LeftToRight } rich &&
                 rich.Blocks.Count == 1 && rich.Blocks[0] is Paragraph { Inlines.Count: 1 } &&
                 IsAxisAligned(Transform(rich));
-            for (int offset = Math.Max(Document.Start, entry.Start); offset < Math.Min(Document.End, entry.End);)
+            for (int offset = Math.Max(Document.Start, entry.Start); offset < drawEnd;)
             {
                 int next = Document.MoveGrapheme(offset, 1);
                 if (canSkipRight && next < entry.End &&

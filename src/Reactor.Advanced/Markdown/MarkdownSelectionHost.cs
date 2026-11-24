@@ -206,7 +206,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     {
         if (_detached) return;
         ProbeDisableClipOptimization = Environment.GetEnvironmentVariable("REACTOR_SELECTION_DISABLE_CLIP") == "1";
-        ProbeDisableHitOptimization = Environment.GetEnvironmentVariable("REACTOR_SELECTION_DISABLE_HIT") == "1";
+        ProbeDisableHitOptimization = Environment.GetEnvironmentVariable("REACTOR_SELECTION_DISABLE_HIT") != "0";
         _loaded = true;
         Refresh();
         UpdateLayoutTracking();
@@ -992,6 +992,8 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         {
             if (candidate.Score > score) break;
             var entry = entries[candidate.Index];
+            int beforeRects = _characterRects.Count;
+            double beforeScore = score;
             int first = 0, last = entry.Text.Length;
             if (!ProbeDisableHitOptimization && direction == 0 &&
                 TryNativeCaret(entry, point, out int nativeLocal))
@@ -1016,6 +1018,15 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
                 if (local == last) break;
                 int following = Document.MoveGrapheme(offset, 1) - entry.Start;
                 local = Math.Min(last, Math.Max(local + 1, following));
+            }
+            if (_perfGesture is not null && _characterRects.Count - beforeRects > 100)
+            {
+                var bounds = SurfaceBounds((MarkdownSelectionMarker)entry.Identity);
+                var entrySegments = Segments((MarkdownSelectionMarker)entry.Identity);
+                string owner = entrySegments.Length > 0 ? entrySegments[0].Owner.GetType().Name : "none";
+                bool run = entrySegments.Length > 0 && entrySegments[0].Identity is Run;
+                _perfGesture.Add(global::System.FormattableString.Invariant(
+                    $"profileEntry len={entry.Text.Length} start={entry.Start} newRects={_characterRects.Count - beforeRects} segments={entrySegments.Length} owner={owner} run={run} lower={candidate.Score:F2} before={beforeScore:F2} after={score:F2} pointX={point.X:F2} pointY={point.Y:F2} top={bounds.Top:F2} bottom={bounds.Bottom:F2}"));
             }
         }
         if (hitEntry is null) return glyphOffset = Document.Caret;

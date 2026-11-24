@@ -72,6 +72,9 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     internal bool IsTrackingLayout => _trackingLayout;
     internal bool HasPendingNativePress => _nativePressOwner is not null;
     internal int CachedCharacterCount => _characterRects.Count;
+    internal bool ProbeDisableClipOptimization { get; set; }
+    internal int ProbeSkippedGlyphs { get; private set; }
+    internal IReadOnlyList<Rect> ProbeSelectionRects => _selectionRectangles;
     private List<string>? _perfGesture;
     private string? _perfOutput;
     internal int LayoutPassCount { get; private set; }
@@ -200,12 +203,20 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (_detached) return;
+        ProbeDisableClipOptimization = Environment.GetEnvironmentVariable("REACTOR_SELECTION_DISABLE_CLIP") == "1";
         _loaded = true;
         Refresh();
         UpdateLayoutTracking();
         UpdateClickAwayRegistration();
     }
     private void OnLayout(object? sender, object e)
+    {
+        long start = _perfGesture is not null ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        try { OnLayoutCore(sender, e); }
+        finally { RecordHandler("layout", start); }
+    }
+
+    private void OnLayoutCore(object? sender, object e)
     {
         if (_detached || !IsLoaded) return;
         LayoutPassCount++;
@@ -226,7 +237,9 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         {
             _dragPoint = LocalPoint(_rootDragPoint);
             UpdateDragSelection("layout");
+            long start = _perfGesture is not null ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             DrawSelection();
+            RecordHandler("layout-extra-draw", start);
         }
         UpdateLayoutTracking();
     }
@@ -553,6 +566,15 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
 
     private void OnPressed(object sender, PointerRoutedEventArgs e)
     {
+        bool measuring = AutomationProperties.GetAutomationId(this) == "SelectionPerfScope" &&
+            Environment.GetEnvironmentVariable("REACTOR_SELECTION_PERF_OUTPUT") is not null;
+        long start = measuring ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        try { OnPressedCore(sender, e); }
+        finally { RecordHandler("press", start); }
+    }
+
+    private void OnPressedCore(object sender, PointerRoutedEventArgs e)
+    {
         if (!IsMouseSelection(e.Pointer.PointerDeviceType)) return;
         var point = e.GetCurrentPoint(this);
         if (point.Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed)
@@ -642,6 +664,13 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
 
     private void OnMoved(object sender, PointerRoutedEventArgs e)
     {
+        long start = _perfGesture is not null ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        try { OnMovedCore(sender, e); }
+        finally { RecordHandler("move", start); }
+    }
+
+    private void OnMovedCore(object sender, PointerRoutedEventArgs e)
+    {
         if (_pointer?.PointerId != e.Pointer.PointerId) return;
         var point = e.GetCurrentPoint(this);
         if (!point.Properties.IsLeftButtonPressed)
@@ -667,6 +696,17 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     }
 
     private void OnReleased(object sender, PointerRoutedEventArgs e)
+    {
+        long start = _perfGesture is not null ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        try { OnReleasedCore(sender, e); }
+        finally
+        {
+            RecordHandler("release", start);
+            FlushPerf();
+        }
+    }
+
+    private void OnReleasedCore(object sender, PointerRoutedEventArgs e)
     {
         if (_pointer?.PointerId != e.Pointer.PointerId) return;
         var point = e.GetCurrentPoint(this);
@@ -717,6 +757,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         if (_pointer?.PointerId != e.Pointer.PointerId) return;
         StopDrag();
         ResetClickSequence();
+        FlushPerf();
     }
 
     internal static bool IsMouseSelection(Microsoft.UI.Input.PointerDeviceType device) =>
@@ -726,13 +767,6 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         (modifiers & VirtualKeyModifiers.Shift) != 0 ? anchor : offset;
     private void StopDrag()
     {
-        if (_perfGesture is { } samples && _perfOutput is { } output)
-        {
-            samples.Add("end");
-            global::System.IO.File.AppendAllLines(output, samples);
-            _perfGesture = null;
-            _perfOutput = null;
-        }
         _dragTimer.Stop();
         _nativePressOwner = null;
         _dragged = false;
@@ -741,6 +775,24 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         _pointer = null;
         UpdateLayoutTracking();
         if (pointer is not null) ReleasePointerCapture(pointer);
+    }
+
+    private void RecordHandler(string source, long start)
+    {
+        if (start != 0 && _perfGesture is { } samples)
+            samples.Add(global::System.FormattableString.Invariant(
+                $"handler={source} totalMs={(global::System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds):F4}"));
+    }
+
+    private void FlushPerf()
+    {
+        if (_perfGesture is { } samples && _perfOutput is { } output)
+        {
+            samples.Add("end");
+            global::System.IO.File.AppendAllLines(output, samples);
+            _perfGesture = null;
+            _perfOutput = null;
+        }
     }
 
     private void OnDragTick(object? sender, object e)
@@ -754,6 +806,13 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         point.Y < viewport.Top ? -24 : point.Y > viewport.Bottom ? 24 : 0;
 
     internal void ScrollDrag(Point rootPoint)
+    {
+        long start = _perfGesture is not null ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        try { ScrollDragCore(rootPoint); }
+        finally { RecordHandler("edge", start); }
+    }
+
+    private void ScrollDragCore(Point rootPoint)
     {
         _dragPoint = LocalPoint(rootPoint);
         double delta = DragScrollDelta(ScrollViewport(), _dragPoint);
@@ -1266,6 +1325,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
 
     private void DrawSelection()
     {
+        ProbeSkippedGlyphs = 0;
         if (Document.Start == Document.End && (FocusState == FocusState.Unfocused || Document.Text.Length == 0))
         {
             if (_overlay.Children.Count > 0) _overlay.Children.Clear();
@@ -1287,9 +1347,26 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             if (entry.End <= Document.Start || entry.Start >= Document.End) continue;
             var surfaceBounds = Intersect(SurfaceBounds((MarkdownSelectionMarker)entry.Identity), viewport);
             if (surfaceBounds.Width <= 0 || surfaceBounds.Height <= 0) continue;
+            bool canSkipRight = !ProbeDisableClipOptimization &&
+                _segments.TryGetValue((MarkdownSelectionMarker)entry.Identity, out var segments) &&
+                segments is [var segment] && segment.Identity is Run &&
+                segment.Text == entry.Text && segment.Text.All(character => character is >= ' ' and <= '~') &&
+                segment.Owner is RichTextBlock { FlowDirection: FlowDirection.LeftToRight } rich &&
+                rich.Blocks.Count == 1 && rich.Blocks[0] is Paragraph { Inlines.Count: 1 } &&
+                IsAxisAligned(Transform(rich));
             for (int offset = Math.Max(Document.Start, entry.Start); offset < Math.Min(Document.End, entry.End);)
             {
                 int next = Document.MoveGrapheme(offset, 1);
+                if (canSkipRight && next < entry.End &&
+                    _characterRects.TryGetValue(offset, out var start) &&
+                    _characterRects.TryGetValue(next, out var following) &&
+                    start.X > viewport.Right && following.X > viewport.Right &&
+                    Math.Abs(start.Y - following.Y) < .5)
+                {
+                    ProbeSkippedGlyphs++;
+                    offset = Math.Max(offset + 1, next);
+                    continue;
+                }
                 var rect = Intersect(GlyphBounds(offset, next), viewport);
                 if (rect.Width > 0 && rect.Height > 0)
                 {
@@ -1301,6 +1378,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
                         _selectionRectangles[^1] = new Rect(Math.Min(previous.Left, rect.Left), previous.Y,
                             Math.Max(previous.Right, rect.Right) - Math.Min(previous.Left, rect.Left), previous.Height);
                     }
+
                     else _selectionRectangles.Add(rect);
                 }
                 offset = Math.Max(offset + 1, next);
@@ -1319,6 +1397,14 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             if (Canvas.GetLeft(shape) != rect.X) Canvas.SetLeft(shape, rect.X);
             if (Canvas.GetTop(shape) != rect.Y) Canvas.SetTop(shape, rect.Y);
         }
+    }
+
+    private static bool IsAxisAligned(GeneralTransform transform)
+    {
+        var origin = transform.TransformPoint(new Point(0, 0));
+        var x = transform.TransformPoint(new Point(1, 0));
+        var y = transform.TransformPoint(new Point(0, 1));
+        return x.X > origin.X && x.Y == origin.Y && y.X == origin.X && y.Y > origin.Y;
     }
 
     internal void Select(int start, int end)

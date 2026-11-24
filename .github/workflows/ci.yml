@@ -136,36 +136,55 @@ jobs:
         env:
           REACTOR_E2E_HOST_CONFIGURATION: Release
           REACTOR_E2E_REQUIRE_UI_YIELD: '1'
-          REACTOR_SELECTION_PERF_OUTPUT: ${{ runner.temp }}\selection-gesture.txt
         shell: pwsh
         run: |
-          dotnet test tests/Reactor.AppTests/Reactor.AppTests.csproj -c Release -p:Platform=x64 --no-build `
-            --filter "FullyQualifiedName~Selection_RealGestureDrawProfile|FullyQualifiedName~Selection_RoutedInputAndExternalEvents|FullyQualifiedName~Selection_ViewportEdges" `
-            --report-trx --report-trx-filename selection-gesture.trx --results-directory TestResults
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $trx = Get-ChildItem TestResults -Recurse -Filter selection-gesture.trx | Select-Object -First 1
-          if (-not $trx) { throw 'Missing test result' }
-          [xml]$result = Get-Content $trx.FullName -Raw
-          $tests = @($result.SelectNodes("//*[local-name()='UnitTestResult']"))
-          if ($tests.Count -ne 4 -or @($tests | Where-Object outcome -ne 'Passed').Count -ne 0) {
-            throw "Expected four passed gesture proofs, got $($tests.Count): $($tests.outcome -join ',')"
+          foreach ($case in @('baseline1', 'candidate1', 'candidate2', 'baseline2')) {
+            $env:REACTOR_SELECTION_DISABLE_CLIP = if ($case.StartsWith('baseline')) { '1' } else { '0' }
+            $env:REACTOR_SELECTION_PERF_OUTPUT = Join-Path $env:RUNNER_TEMP "$case-gesture.txt"
+            dotnet test tests/Reactor.AppTests/Reactor.AppTests.csproj -c Release -p:Platform=x64 --no-build `
+              --filter "FullyQualifiedName~Selection_RealGestureDrawProfile|FullyQualifiedName~Selection_RoutedInputAndExternalEvents|FullyQualifiedName~Selection_ViewportEdges" `
+              --report-trx --report-trx-filename "$case-gesture.trx" --results-directory TestResults
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $trx = Get-ChildItem TestResults -Recurse -Filter "$case-gesture.trx" | Select-Object -First 1
+            if (-not $trx) { throw "Missing $case test result" }
+            [xml]$result = Get-Content $trx.FullName -Raw
+            $tests = @($result.SelectNodes("//*[local-name()='UnitTestResult']"))
+            if ($tests.Count -ne 4 -or @($tests | Where-Object outcome -ne 'Passed').Count -ne 0) {
+              throw "Expected four passed $case gesture proofs, got $($tests.Count): $($tests.outcome -join ',')"
+            }
+            if (-not (Test-Path $env:REACTOR_SELECTION_PERF_OUTPUT)) { throw "Missing $case gesture samples" }
+            $lines = @(Get-Content $env:REACTOR_SELECTION_PERF_OUTPUT)
+            if (@($lines | Where-Object { $_ -eq 'begin' }).Count -ne 3 -or
+                @($lines | Where-Object { $_ -eq 'end' }).Count -ne 3 -or
+                @($lines | Where-Object { $_ -match 'dragged=True' }).Count -lt 12 -or
+                @($lines | Where-Object { $_ -match '^handler=move ' }).Count -lt 12 -or
+                @($lines | Where-Object { $_ -match '^handler=release ' }).Count -ne 3) {
+              throw "Incomplete $case routed drag or handler samples"
+            }
           }
-          if (-not (Test-Path $env:REACTOR_SELECTION_PERF_OUTPUT)) { throw 'Missing real gesture samples' }
-          $lines = @(Get-Content $env:REACTOR_SELECTION_PERF_OUTPUT)
-          if (@($lines | Where-Object { $_ -eq 'begin' }).Count -ne 3 -or
-              @($lines | Where-Object { $_ -eq 'end' }).Count -ne 3 -or
-              @($lines | Where-Object { $_ -match 'dragged=True' }).Count -lt 12) {
-            throw 'The sample file does not contain three complete routed drag sequences'
+      - name: Measure idle typing and streaming
+        shell: pwsh
+        run: |
+          foreach ($case in @('baseline1', 'candidate1', 'candidate2', 'baseline2')) {
+            $env:REACTOR_SELECTION_DISABLE_CLIP = if ($case.StartsWith('baseline')) { '1' } else { '0' }
+            $env:REACTOR_MARKDOWN_PERF_OUTPUT = Join-Path $env:RUNNER_TEMP "$case-idle.json"
+            dotnet run --project tests/Reactor.AppTests.Host --no-build -c Release -p:Platform=x64 -- --self-test --filter Markdown_Responsiveness_Probe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (-not (Test-Path $env:REACTOR_MARKDOWN_PERF_OUTPUT)) { throw "Missing $case idle samples" }
+            $samples = @(Get-Content $env:REACTOR_MARKDOWN_PERF_OUTPUT -Raw | ConvertFrom-Json)
+            if ($samples.Count -ne 24) { throw "Incomplete $case idle samples: $($samples.Count)" }
           }
-          Get-Content $env:REACTOR_SELECTION_PERF_OUTPUT
+      - name: Verify selection geometry
+        run: dotnet run --project tests/Reactor.AppTests.Host --no-build -c Release -p:Platform=x64 -- --self-test --filter Markdown_GlyphGeometry_Probe
       - name: Save results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: markdown-selection-gesture
           path: |
-            ${{ runner.temp }}\selection-gesture.txt
-            TestResults\**\selection-gesture.trx
+            ${{ runner.temp }}\*-gesture.txt
+            ${{ runner.temp }}\*-idle.json
+            TestResults\**\*-gesture.trx
           if-no-files-found: warn
 
   unit-tests:

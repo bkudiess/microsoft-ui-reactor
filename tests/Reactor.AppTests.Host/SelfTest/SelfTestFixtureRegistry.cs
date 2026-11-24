@@ -115,6 +115,8 @@ internal static class SelfTestFixtureRegistry
         ("ConditionalRendering_Toggle", static harness => new DynamicFixtures.ConditionalToggle(harness)),
         ("Markdown_HeadingsAndFormatting", static harness => new MarkdownFixtures.HeadingsAndFormatting(harness)),
         ("Markdown_Selection_SemanticMessage", static harness => new MarkdownSelectionFixtures.SemanticMessage(harness)),
+        ("Markdown_Responsiveness_Probe", static harness => new MarkdownResponsivenessProbe(harness)),
+        ("Markdown_GlyphGeometry_Probe", static harness => new MarkdownGlyphGeometryProbe(harness)),
         ("Markdown_Selection_IdleLayoutCost", static harness => new MarkdownSelectionFixtures.IdleLayoutCost(harness)),
         ("Markdown_Selection_LifecycleAndStreaming", static harness => new MarkdownSelectionFixtures.LifecycleAndStreaming(harness)),
         ("Markdown_Selection_RangeChildren", static harness => new MarkdownSelectionFixtures.RangeChildren(harness)),

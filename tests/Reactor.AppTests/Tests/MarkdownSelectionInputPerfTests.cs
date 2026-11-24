@@ -18,6 +18,9 @@ public sealed partial class MarkdownSelectionInputProofTests
         AutomationElement Find(string id) => window.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, id))
             ?? throw new InvalidOperationException($"Missing {id}");
+        Wait(() => window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ResetFixture")) is not null,
+            "fixture navigator ready");
         bool held = false;
         nint previousDpi = SetThreadDpiAwarenessContext(-4);
         Assert.AreNotEqual((nint)0, previousDpi);

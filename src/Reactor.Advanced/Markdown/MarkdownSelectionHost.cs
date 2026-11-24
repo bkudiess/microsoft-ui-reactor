@@ -73,6 +73,8 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     internal bool HasPendingNativePress => _nativePressOwner is not null;
     internal int CachedCharacterCount => _characterRects.Count;
     internal bool ProbeDisableClipOptimization { get; set; }
+    internal bool ProbeDisableHitOptimization { get; set; }
+    internal int ProbeNativeHitCount { get; private set; }
     internal int ProbeSkippedGlyphs { get; private set; }
     internal IReadOnlyList<Rect> ProbeSelectionRects => _selectionRectangles;
     private List<string>? _perfGesture;
@@ -204,6 +206,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     {
         if (_detached) return;
         ProbeDisableClipOptimization = Environment.GetEnvironmentVariable("REACTOR_SELECTION_DISABLE_CLIP") == "1";
+        ProbeDisableHitOptimization = Environment.GetEnvironmentVariable("REACTOR_SELECTION_DISABLE_HIT") == "1";
         _loaded = true;
         Refresh();
         UpdateLayoutTracking();
@@ -959,6 +962,12 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     internal int HitTest(Point point, int direction = 0, double currentY = 0) =>
         HitTest(point, out _, out _, direction, currentY);
 
+    internal (int Caret, int Glyph) ProbeHitTest(Point point)
+    {
+        int caret = HitTest(point, out _, out int glyph);
+        return (caret, glyph);
+    }
+
     private int HitTest(Point point, out MarkdownSelectionDocument.Entry? hitEntry, out int glyphOffset,
         int direction = 0, double currentY = 0, bool requireInsideSurface = false)
     {
@@ -983,8 +992,15 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         {
             if (candidate.Score > score) break;
             var entry = entries[candidate.Index];
+            int first = 0, last = entry.Text.Length;
+            if (!ProbeDisableHitOptimization && direction == 0 &&
+                TryNativeCaret(entry, point, out int nativeLocal))
+            {
+                first = Math.Max(0, nativeLocal - 1);
+                last = Math.Min(entry.Text.Length, nativeLocal + 1);
+            }
             // No intersection with Viewport here: navigation traverses the entire message.
-            for (int local = 0; local <= entry.Text.Length;)
+            for (int local = first; local <= last;)
             {
                 int offset = entry.Start + local;
                 var rect = local < entry.Text.Length || ReferenceEquals(entry, Document.EntryAt(offset))
@@ -997,9 +1013,9 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
                     double distance = glyphDy * glyphDy * 10000 + glyphDx * glyphDx;
                     if (distance < score) { best = offset; score = distance; hitEntry = entry; }
                 }
-                if (local == entry.Text.Length) break;
+                if (local == last) break;
                 int following = Document.MoveGrapheme(offset, 1) - entry.Start;
-                local = Math.Min(entry.Text.Length, Math.Max(local + 1, following));
+                local = Math.Min(last, Math.Max(local + 1, following));
             }
         }
         if (hitEntry is null) return glyphOffset = Document.Caret;
@@ -1015,6 +1031,27 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
                 glyphOffset = previous;
         }
         return best;
+    }
+
+    private bool TryNativeCaret(MarkdownSelectionDocument.Entry entry, Point point, out int local)
+    {
+        local = 0;
+        if (entry.Identity is not MarkdownSelectionMarker marker ||
+            Segments(marker) is not [var segment] || segment.Start is null ||
+            segment.Owner is not RichTextBlock { FlowDirection: FlowDirection.LeftToRight } rich ||
+            segment.Text != entry.Text || segment.Text.Any(character => character < ' ' || character > '~') ||
+            !IsAxisAligned(Transform(rich)))
+            return false;
+        var pointer = rich.GetPositionFromPoint(Transform(rich).Inverse.TransformPoint(point));
+        if (pointer is null) return false;
+        local = pointer.Offset - segment.Start.Offset;
+        if (local < 0 || local > entry.Text.Length) return false;
+        var rect = ComputeCharacterBounds(entry, entry.Start + local);
+        double margin = Math.Min(point.Y - rect.Top, rect.Bottom - point.Y);
+        double dx = point.X - rect.X;
+        bool usable = margin > 0 && dx * dx < margin * margin * 10000;
+        if (usable) ProbeNativeHitCount++;
+        return usable;
     }
 
     internal Rect CharacterBounds(int offset)

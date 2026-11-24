@@ -138,8 +138,9 @@ jobs:
           REACTOR_E2E_REQUIRE_UI_YIELD: '1'
         shell: pwsh
         run: |
-          foreach ($case in @('baseline1', 'candidate1', 'candidate2', 'baseline2')) {
+          foreach ($case in @('baseline1', 'clip1', 'hit1', 'hit2', 'clip2', 'baseline2')) {
             $env:REACTOR_SELECTION_DISABLE_CLIP = if ($case.StartsWith('baseline')) { '1' } else { '0' }
+            $env:REACTOR_SELECTION_DISABLE_HIT = if ($case.StartsWith('hit')) { '0' } else { '1' }
             $env:REACTOR_SELECTION_PERF_OUTPUT = Join-Path $env:RUNNER_TEMP "$case-gesture.txt"
             dotnet test tests/Reactor.AppTests/Reactor.AppTests.csproj -c Release -p:Platform=x64 --no-build `
               --filter "FullyQualifiedName~Selection_RealGestureDrawProfile|FullyQualifiedName~Selection_RoutedInputAndExternalEvents|FullyQualifiedName~Selection_ViewportEdges" `
@@ -165,8 +166,9 @@ jobs:
       - name: Measure idle typing and streaming
         shell: pwsh
         run: |
-          foreach ($case in @('baseline1', 'candidate1', 'candidate2', 'baseline2')) {
+          foreach ($case in @('baseline1', 'clip1', 'hit1', 'hit2', 'clip2', 'baseline2')) {
             $env:REACTOR_SELECTION_DISABLE_CLIP = if ($case.StartsWith('baseline')) { '1' } else { '0' }
+            $env:REACTOR_SELECTION_DISABLE_HIT = if ($case.StartsWith('hit')) { '0' } else { '1' }
             $env:REACTOR_MARKDOWN_PERF_OUTPUT = Join-Path $env:RUNNER_TEMP "$case-idle.json"
             dotnet run --project tests/Reactor.AppTests.Host --no-build -c Release -p:Platform=x64 -- --self-test --filter Markdown_Responsiveness_Probe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -992,8 +992,6 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         {
             if (candidate.Score > score) break;
             var entry = entries[candidate.Index];
-            int beforeRects = _characterRects.Count;
-            double beforeScore = score;
             int first = 0, last = entry.Text.Length;
             if (!ProbeDisableHitOptimization && direction == 0 &&
                 TryNativeCaret(entry, point, out int nativeLocal))
@@ -1019,15 +1017,6 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
                 int following = Document.MoveGrapheme(offset, 1) - entry.Start;
                 local = Math.Min(last, Math.Max(local + 1, following));
             }
-            if (_perfGesture is not null && _characterRects.Count - beforeRects > 100)
-            {
-                var bounds = SurfaceBounds((MarkdownSelectionMarker)entry.Identity);
-                var entrySegments = Segments((MarkdownSelectionMarker)entry.Identity);
-                string owner = entrySegments.Length > 0 ? entrySegments[0].Owner.GetType().Name : "none";
-                bool run = entrySegments.Length > 0 && entrySegments[0].Identity is Run;
-                _perfGesture.Add(global::System.FormattableString.Invariant(
-                    $"profileEntry len={entry.Text.Length} start={entry.Start} newRects={_characterRects.Count - beforeRects} segments={entrySegments.Length} owner={owner} run={run} lower={candidate.Score:F2} before={beforeScore:F2} after={score:F2} pointX={point.X:F2} pointY={point.Y:F2} top={bounds.Top:F2} bottom={bounds.Bottom:F2}"));
-            }
         }
         if (hitEntry is null) return glyphOffset = Document.Caret;
         glyphOffset = best;
@@ -1049,18 +1038,25 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         local = 0;
         if (entry.Identity is not MarkdownSelectionMarker marker ||
             Segments(marker) is not [var segment] || segment.Start is null ||
-            segment.Owner is not RichTextBlock { FlowDirection: FlowDirection.LeftToRight } rich ||
+            segment.Identity is not Run { CharacterSpacing: 0 } ||
+            segment.Owner is not RichTextBlock
+                { FlowDirection: FlowDirection.LeftToRight, CharacterSpacing: 0, LineHeight: 0 } rich ||
+            rich.Blocks.Count != 1 || rich.Blocks[0] is not Paragraph { Inlines.Count: 1 } ||
             segment.Text != entry.Text || segment.Text.Any(character => character < ' ' || character > '~') ||
             !IsAxisAligned(Transform(rich)))
+            return false;
+        var first = CharacterBounds(entry.Start);
+        var last = ComputeCharacterBounds(entry, entry.End);
+        var bounds = Bounds(rich);
+        if (first.Height <= 1 || Math.Abs(first.Y - last.Y) >= .5 ||
+            Math.Abs(first.Height - last.Height) >= .5 || bounds.Height > first.Height + .5)
             return false;
         var pointer = rich.GetPositionFromPoint(Transform(rich).Inverse.TransformPoint(point));
         if (pointer is null) return false;
         local = pointer.Offset - segment.Start.Offset;
         if (local < 0 || local > entry.Text.Length) return false;
         var rect = ComputeCharacterBounds(entry, entry.Start + local);
-        double margin = Math.Min(point.Y - rect.Top, rect.Bottom - point.Y);
-        double dx = point.X - rect.X;
-        bool usable = margin > 0 && dx * dx < margin * margin * 10000;
+        bool usable = rect.Height > 0;
         if (usable) ProbeNativeHitCount++;
         return usable;
     }

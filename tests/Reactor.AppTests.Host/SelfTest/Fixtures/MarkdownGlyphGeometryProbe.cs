@@ -28,6 +28,8 @@ internal sealed class MarkdownGlyphGeometryProbe(Harness harness) : SelfTestFixt
         await Harness.Render();
         var selection = scope ?? throw new InvalidOperationException("Selection scope not mounted");
         selection.Refresh();
+        foreach (var rich in MarkdownSelectionHost.Descendants(selection).OfType<RichTextBlock>().Take(3))
+            Console.WriteLine($"# Rich shape wrapping={rich.TextWrapping} size={rich.ActualWidth:F1}x{rich.ActualHeight:F1} spacing={rich.CharacterSpacing} lineheight={rich.LineHeight} blocks={rich.Blocks.Count}");
         var viewport = selection.Viewport();
         int samples = 0, right = 0, rightBad = 0, same = 0, different = 0;
         foreach (var entry in selection.Document.Entries)
@@ -55,7 +57,7 @@ internal sealed class MarkdownGlyphGeometryProbe(Harness harness) : SelfTestFixt
         H.Check("GlyphProbe_EnoughSamples", samples > 600);
         int maxSkipped = 0;
         int hitCases = 0, hitMismatches = 0;
-        foreach (string font in new[] { "Segoe UI", "Times New Roman", "Consolas" })
+        foreach (string font in new[] { "Segoe UI", "Times New Roman", "Consolas", "Gabriola" })
         foreach (bool rtl in new[] { false, true })
         {
             foreach (var rich in MarkdownSelectionHost.Descendants(selection).OfType<RichTextBlock>())
@@ -138,6 +140,49 @@ internal sealed class MarkdownGlyphGeometryProbe(Harness harness) : SelfTestFixt
             }
         }
         H.Check("GlyphProbe_OptimizationExercised", maxSkipped > 100, $"skipped={maxSkipped}");
+        foreach (int spacing in new[] { -1500, -500, 1000 })
+        foreach (double lineHeight in new[] { 0.0, 7.0 })
+        {
+            int beforeMismatches = hitMismatches;
+            foreach (var rich in MarkdownSelectionHost.Descendants(selection).OfType<RichTextBlock>())
+            {
+                rich.FlowDirection = FlowDirection.LeftToRight;
+                rich.CharacterSpacing = spacing;
+                rich.LineHeight = lineHeight;
+            }
+            scroll!.Width = 640;
+            scroll.ChangeView(null, 0, null, true);
+            await Harness.Render();
+            selection.Refresh();
+            for (int end = 50; end <= selection.Document.Text.Length; end += 75)
+            {
+                selection.ProbeDisableClipOptimization = true;
+                selection.SelectRefreshed(0, end);
+                var baseline = selection.ProbeSelectionRects.ToArray();
+                selection.ProbeDisableClipOptimization = false;
+                selection.SelectRefreshed(0, end);
+                H.Check($"GlyphProbe_SpacingParity_{spacing}_{lineHeight}_{end}",
+                    baseline.SequenceEqual(selection.ProbeSelectionRects));
+            }
+            var area = selection.Viewport();
+            for (double y = area.Top + .5; y < area.Bottom; y += 7)
+            for (double x = area.Left + .5; x < area.Right; x += 17)
+            {
+                var point = new Point(x, y);
+                selection.ProbeDisableHitOptimization = true;
+                var expectedHit = selection.ProbeHitTest(point);
+                selection.ProbeDisableHitOptimization = false;
+                var actualHit = selection.ProbeHitTest(point);
+                hitCases++;
+                if (expectedHit != actualHit)
+                {
+                    if (hitMismatches < 10)
+                        Console.WriteLine($"# Hit spacing mismatch spacing={spacing} lineHeight={lineHeight} x={x} y={y} baseline={expectedHit} candidate={actualHit}");
+                    hitMismatches++;
+                }
+            }
+            Console.WriteLine($"# Hit spacing summary spacing={spacing} lineHeight={lineHeight} mismatches={hitMismatches - beforeMismatches}");
+        }
         Console.WriteLine($"# Hit comparison cases={hitCases} mismatches={hitMismatches} native={selection.ProbeNativeHitCount}");
         H.Check("GlyphProbe_HitParity", hitCases > 1000 && hitMismatches == 0,
             $"cases={hitCases} mismatches={hitMismatches}");

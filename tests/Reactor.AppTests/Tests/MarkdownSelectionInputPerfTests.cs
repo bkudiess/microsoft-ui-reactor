@@ -19,7 +19,7 @@ public sealed partial class MarkdownSelectionInputProofTests
             new PropertyCondition(AutomationElement.AutomationIdProperty, id))
             ?? throw new InvalidOperationException($"Missing {id}");
         Wait(() => window.FindFirst(TreeScope.Descendants,
-            new PropertyCondition(AutomationElement.AutomationIdProperty, "ResetFixture")) is not null,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "FixtureStatus")) is not null,
             "fixture navigator ready");
         bool held = false;
         nint previousDpi = SetThreadDpiAwarenessContext(-4);
@@ -29,8 +29,11 @@ public sealed partial class MarkdownSelectionInputProofTests
             for (int repeat = 0; repeat < 3; repeat++)
             {
                 GuardForeground();
-                ((InvokePattern)Find("ResetFixture").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-                Wait(() => Find("FixtureStatus").Current.Name == "Ready", "fixture reset");
+                if (Find("FixtureStatus").Current.Name != "Ready")
+                {
+                    ((InvokePattern)Find("ResetFixture").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    Wait(() => Find("FixtureStatus").Current.Name == "Ready", "fixture reset");
+                }
                 ((InvokePattern)Find("Nav_Markdown_Selection_Perf").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                 Wait(() => Find("FixtureStatus").Current.Name == "Loaded: Markdown_Selection_Perf", "perf fixture");
                 var message = Find("SelectionPerfScope");

@@ -31,6 +31,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     private readonly List<(double Score, int Index)> _hitCandidates = [];
     private readonly Dictionary<int, Rect> _characterRects = [];
     private readonly Dictionary<(int Offset, int Next), Rect> _glyphRects = [];
+    private readonly Dictionary<MarkdownSelectionMarker, (double Right, int End)> _lineClipEnds = [];
     private readonly Dictionary<MarkdownSelectionMarker, Rect> _surfaceBounds = [];
     private readonly HashSet<FrameworkElement> _layoutOwners = [];
     private readonly Dictionary<MarkdownSelectionMarker, TextSegment[]> _segments = [];
@@ -119,6 +120,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     internal void InvalidateDocument()
     {
         _documentDirty = true;
+        _lineClipEnds.Clear();
         if (_loaded && !_trackingLayout && !_refreshPending && _automationPeer is not null
             && AutomationPeer.ListenerExists(AutomationEvents.TextPatternOnTextChanged))
         {
@@ -227,6 +229,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         if (_detached || !IsLoaded) return;
         LayoutPassCount++;
         _refreshPending = false;
+        _lineClipEnds.Clear();
         _transforms.Clear();
         _surfaceBounds.Clear();
         CheckMembership();
@@ -304,6 +307,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         _surfaces.Clear();
         _characterRects.Clear();
         _glyphRects.Clear();
+        _lineClipEnds.Clear();
         _surfaceBounds.Clear();
         ClearVisibilitySubscriptions();
         _layoutOwners.Clear();
@@ -353,6 +357,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         _refreshing = true;
         try
         {
+            _lineClipEnds.Clear();
             if (!membershipChecked)
             {
                 _transforms.Clear();
@@ -751,7 +756,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         {
             double drawMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             _perfGesture.Add(global::System.FormattableString.Invariant(
-                $"source={source} hitMs={hitMs:F4} drawMs={drawMs:F4} hitRects={hitCharacters} drawRects={_characterRects.Count - characters} drawGlyphs={_glyphRects.Count - glyphs} nativeCarets={_perfNativeCaretQueries - nativeCarets} nativeGlyphs={_perfNativeGlyphQueries - nativeGlyphs} nativePoints={_perfNativePointQueries - nativePoints} allocBytes={GC.GetAllocatedBytesForCurrentThread() - allocated} cacheCarets={_characterRects.Count} cacheGlyphs={_glyphRects.Count} anchor={Document.Anchor} caret={Document.Caret} dragged={_dragged}"));
+                $"source={source} hitMs={hitMs:F4} drawMs={drawMs:F4} hitRects={hitCharacters} drawRects={_characterRects.Count - characters} drawGlyphs={_glyphRects.Count - glyphs} nativeCarets={_perfNativeCaretQueries - nativeCarets} nativeGlyphs={_perfNativeGlyphQueries - nativeGlyphs} nativePoints={_perfNativePointQueries - nativePoints} allocBytes={GC.GetAllocatedBytesForCurrentThread() - allocated} cacheCarets={_characterRects.Count} cacheGlyphs={_glyphRects.Count} cacheLines={_lineClipEnds.Count} anchor={Document.Anchor} caret={Document.Caret} dragged={_dragged}"));
         }
     }
 
@@ -1398,10 +1403,17 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             var surfaceBounds = Intersect(SurfaceBounds((MarkdownSelectionMarker)entry.Identity), viewport);
             if (surfaceBounds.Width <= 0 || surfaceBounds.Height <= 0) continue;
             int drawEnd = Math.Min(Document.End, entry.End);
-            if (!ProbeDisableHitOptimization && !ProbeDisableClipOptimization &&
-                TryNativeCaret(entry, new Point(viewport.Right, surfaceBounds.Top), out int rightLocal))
+            if (!ProbeDisableHitOptimization && !ProbeDisableClipOptimization)
             {
-                int clippedEnd = Math.Min(drawEnd, entry.Start + Math.Min(entry.Text.Length, rightLocal + 2));
+                var marker = (MarkdownSelectionMarker)entry.Identity;
+                if (!_lineClipEnds.TryGetValue(marker, out var clip) || clip.Right != viewport.Right)
+                {
+                    if (TryNativeCaret(entry, new Point(viewport.Right, surfaceBounds.Top), out int rightLocal))
+                        clip = (viewport.Right, entry.Start + Math.Min(entry.Text.Length, rightLocal + 2));
+                    else clip = (viewport.Right, entry.End);
+                    _lineClipEnds[marker] = clip;
+                }
+                int clippedEnd = Math.Min(drawEnd, clip.End);
                 if (clippedEnd < drawEnd)
                 {
                     ProbeSkippedGlyphs += drawEnd - clippedEnd;

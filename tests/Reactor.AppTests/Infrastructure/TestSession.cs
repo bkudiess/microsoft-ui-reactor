@@ -197,8 +197,9 @@ public class TestSession
             _ => "x64"
         };
 
+        var configuration = Environment.GetEnvironmentVariable("REACTOR_E2E_HOST_CONFIGURATION") ?? "Debug";
         var exe = Path.Combine(dir, "tests", "Reactor.AppTests.Host", "bin", platform,
-            "Debug", "net10.0-windows10.0.22621.0", "Reactor.AppTests.Host.exe");
+            configuration, "net10.0-windows10.0.22621.0", "Reactor.AppTests.Host.exe");
 
         if (!File.Exists(exe))
             throw new FileNotFoundException($"Build the Host app first. Expected: {exe}");

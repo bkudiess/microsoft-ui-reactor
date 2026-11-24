@@ -115,6 +115,7 @@ internal static class FixtureRegistry
         ("Markdown_HeadingsAndFormatting", static ctx => MarkdownFixtures.HeadingsAndFormatting(ctx)),
         ("Markdown_CodeBlockAndLinks", static ctx => MarkdownFixtures.CodeBlockAndLinks(ctx)),
         ("Markdown_Selection_InputProof", static ctx => Factories.Component<MarkdownSelectionInputFixture>()),
+        ("Markdown_Selection_Perf", static ctx => Factories.Component<MarkdownSelectionPerfFixture>()),
         ("Markdown_Selection_Edges_Modern", static ctx => Factories.Component<MarkdownSelectionEdgesFixture, bool>(true)),
         ("Markdown_Selection_Edges_Legacy", static ctx => Factories.Component<MarkdownSelectionEdgesFixture, bool>(false)),
 

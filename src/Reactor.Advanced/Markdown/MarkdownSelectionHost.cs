@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -71,6 +72,8 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
     internal bool IsTrackingLayout => _trackingLayout;
     internal bool HasPendingNativePress => _nativePressOwner is not null;
     internal int CachedCharacterCount => _characterRects.Count;
+    private List<string>? _perfGesture;
+    private string? _perfOutput;
     internal int LayoutPassCount { get; private set; }
     internal int MembershipCheckCount { get; private set; }
     internal int SegmentReadCount { get; private set; }
@@ -222,7 +225,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         if (_pointer is not null && _dragged)
         {
             _dragPoint = LocalPoint(_rootDragPoint);
-            UpdateDragSelection();
+            UpdateDragSelection("layout");
             DrawSelection();
         }
         UpdateLayoutTracking();
@@ -572,6 +575,9 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             ResetClickSequence();
             return;
         }
+        _perfOutput = AutomationProperties.GetAutomationId(this) == "SelectionPerfScope"
+            ? Environment.GetEnvironmentVariable("REACTOR_SELECTION_PERF_OUTPUT") : null;
+        if (_perfOutput is not null) _perfGesture = ["begin"];
 
         _pressPoint = _rootDragPoint = RootPoint(_dragPoint);
         _suppressCaret = false;
@@ -656,7 +662,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             _dragged = true;
             _dragTimer.Start();
         }
-        UpdateDragSelection();
+        UpdateDragSelection("move");
         e.Handled = true;
     }
 
@@ -668,23 +674,37 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         if (_dragged)
         {
             _dragPoint = point.Position;
-            UpdateDragSelection();
+            UpdateDragSelection("release");
         }
         bool selectionOwnsRelease = _nativePressOwner is null;
         StopDrag();
         if (selectionOwnsRelease) e.Handled = true;
     }
 
-    private void UpdateDragSelection()
+    private void UpdateDragSelection(string source)
     {
+        bool measuring = _perfGesture is not null;
+        long start = measuring ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        int characters = _characterRects.Count;
         int offset = HitTest(_dragPoint, out var entry, out int glyphOffset);
+        double hitMs = measuring ? global::System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds : 0;
+        int hitCharacters = _characterRects.Count - characters;
         if (_dragUnit == MarkdownSelectionUnit.Character) Document.Select(_pressSpan.Start, offset);
         else
         {
             var (anchor, caret) = _pressSpan.ExtendTo(Document.UnitAt(_dragUnit, glyphOffset, entry));
             Document.Select(anchor, caret);
         }
+        if (measuring) start = global::System.Diagnostics.Stopwatch.GetTimestamp();
+        characters = _characterRects.Count;
+        int glyphs = _glyphRects.Count;
         DrawSelection();
+        if (_perfGesture is not null)
+        {
+            double drawMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            _perfGesture.Add(global::System.FormattableString.Invariant(
+                $"source={source} hitMs={hitMs:F4} drawMs={drawMs:F4} hitRects={hitCharacters} drawRects={_characterRects.Count - characters} drawGlyphs={_glyphRects.Count - glyphs} anchor={Document.Anchor} caret={Document.Caret} dragged={_dragged}"));
+        }
     }
 
     private void OnCaptureLost(object sender, PointerRoutedEventArgs e)
@@ -706,6 +726,13 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
         (modifiers & VirtualKeyModifiers.Shift) != 0 ? anchor : offset;
     private void StopDrag()
     {
+        if (_perfGesture is { } samples && _perfOutput is { } output)
+        {
+            samples.Add("end");
+            global::System.IO.File.AppendAllLines(output, samples);
+            _perfGesture = null;
+            _perfOutput = null;
+        }
         _dragTimer.Stop();
         _nativePressOwner = null;
         _dragged = false;
@@ -747,7 +774,7 @@ internal sealed partial class MarkdownSelectionHost : ContentControl
             }
         }
         _dragPoint = LocalPoint(rootPoint);
-        UpdateDragSelection();
+        UpdateDragSelection("edge");
     }
 
     private static bool IsDown(VirtualKey key) =>
